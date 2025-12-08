@@ -17,6 +17,10 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import config
+from components import (
+    title,
+    footer
+)
 from src.data_loader import (
     get_asset_display_name,
     load_single_asset,
@@ -33,8 +37,8 @@ st.set_page_config(
     layout=config.LAYOUT
 )
 
-st.title("Real-time Anomaly Detection")
-st.markdown("Simulating IoT data streaming with sliding window anomaly detection.")
+title("Real-time Anomaly Detection",
+      "Simulating IoT data streaming with sliding window anomaly detection.")
 
 
 # =============================================================================
@@ -48,10 +52,9 @@ with st.sidebar:
     selected_asset = st.selectbox(
         "Select Asset",
         options=list(asset_options.keys()),
-        format_func=lambda x: asset_options[x]
+        format_func=lambda x: asset_options[x],
+         key="selected_asset_key"
     )
-    
-    st.info("Using **Minute** data for real-time simulation")
     
     st.markdown("---")
     
@@ -175,11 +178,29 @@ except Exception as e:
 st.markdown("---")
 st.markdown("### 📅 Select Simulation Day")
 
+# Initialize selected_day in session_state if not present
+if "selected_day_persist" not in st.session_state:
+    st.session_state.selected_day_persist = available_days[-1]
+
+# Check if selected day is available for current asset
+if st.session_state.selected_day_persist not in available_days:
+    # If date not available, find closest date
+    current_date = st.session_state.selected_day_persist
+    closest_date = min(available_days, key=lambda x: abs((x - current_date).days))
+    st.session_state.selected_day_persist = closest_date
+    st.warning(f"Selected date not available for this asset. Using closest date: {closest_date}")
+
+def on_day_change():
+    """Callback when day selection changes"""
+    st.session_state.selected_day_persist = st.session_state.day_selector
+
 selected_day = st.selectbox(
     "Choose a day to simulate",
     options=available_days,
-    index=len(available_days) - 1,
-    format_func=lambda x: x.strftime("%Y-%m-%d (%A)")
+    index=available_days.index(st.session_state.selected_day_persist),
+    format_func=lambda x: x.strftime("%Y-%m-%d (%A)"),
+    key="day_selector",
+    on_change=on_day_change
 )
 
 df_day = df_full[df_full.index.date == selected_day].copy()
@@ -191,8 +212,6 @@ if len(df_day) == 0:
 if len(df_day) < window_size:
     st.error(f"Not enough data points. Day has {len(df_day)} points but window requires {window_size}.")
     st.stop()
-
-st.info(f"📊 **{len(df_day)}** minute data points available for {selected_day}")
 
 # Get data arrays
 close_col = config.COLUMNS["close"]
@@ -220,6 +239,10 @@ if "sim_key" not in st.session_state or st.session_state.sim_key != sim_key:
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
+
+chart_config = {
+        'displayModeBar': False,
+}
 
 def get_severity(zscore: float, threshold: float) -> str:
     abs_z = abs(zscore)
@@ -340,10 +363,11 @@ def create_price_chart(current_idx, anomalies):
         )
     
     fig.update_layout(
-        title="📈 Price (Streaming)",
-        xaxis_title="Time",
+        title=dict(text="Price (Streaming)", font=dict(size=14)),
+        xaxis=dict(title="", showticklabels=False),  # Nascondi x-axis
         yaxis_title="Price ($)",
-        height=350,
+        height=280,
+        margin=dict(l=60, r=20, t=20, b=0),  # Margini stretti
         hovermode="x unified",
         showlegend=True
     )
@@ -396,10 +420,11 @@ def create_zscore_chart(current_idx):
         )
     
     fig.update_layout(
-        title="📊 Rolling Z-Score",
-        xaxis_title="Time",
+        title=dict(text="Rolling Z-Score", font=dict(size=14)),
+        xaxis=dict(title="", showticklabels=False),  # Nascondi x-axis
         yaxis_title="Z-Score (σ)",
-        height=300,
+        height=230,
+        margin=dict(l=60, r=20, t=20, b=0),  # Margini stretti
         hovermode="x unified",
         showlegend=True
     )
@@ -435,10 +460,11 @@ def create_volume_chart(current_idx):
         )
     
     fig.update_layout(
-        title="📊 Volume",
-        xaxis_title="Time",
+        title=dict(text="Volume", font=dict(size=14)),
+        xaxis_title="Time",  # Solo questo ha le label x
         yaxis_title="Volume",
-        height=300,
+        height=180,
+        margin=dict(l=60, r=20, t=20, b=40),  # Bottom margin per le label
         hovermode="x unified",
         showlegend=True
     )
@@ -467,8 +493,8 @@ def render_anomaly_log(anomalies, current_idx):
 # CONTROL BUTTONS
 # =============================================================================
 
-st.markdown("---")
-st.markdown("### Simulation Controls")
+# st.markdown("---")
+st.markdown("#### Simulation Controls")
 
 col1, col2, col3, col4 = st.columns(4)
 
@@ -575,11 +601,20 @@ if st.session_state.sim_running and not st.session_state.sim_paused:
 # DISPLAY METRICS
 # =============================================================================
 
-st.markdown("---")
-st.markdown("### 📈 Real-time Charts")
-
 current_idx = st.session_state.current_idx
 anomalies = st.session_state.anomalies
+
+# =============================================================================
+# DISPLAY CHARTS
+# =============================================================================
+
+st.plotly_chart(create_price_chart(current_idx, anomalies), width='stretch', config=chart_config)
+# st.markdown("<div style='margin-top: -30px;'></div>", unsafe_allow_html=True)
+
+st.plotly_chart(create_zscore_chart(current_idx), width='stretch', config=chart_config)
+# st.markdown("<div style='margin-top: -30px;'></div>", unsafe_allow_html=True)
+
+st.plotly_chart(create_volume_chart(current_idx), width='stretch', config=chart_config)
 
 # Metrics row
 col1, col2, col3, col4, col5 = st.columns(5)
@@ -590,7 +625,7 @@ current_price = prices[current_idx - 1] if current_idx > 0 else 0
 with col1:
     st.metric("Progress", f"{progress:.1f}%")
 with col2:
-    st.metric("Points Streamed", f"{current_idx}")
+    st.metric("Points Streamed", f"{current_idx}/{len(df_day)}")
 with col3:
     st.metric("Anomalies Found", len(anomalies))
 with col4:
@@ -611,15 +646,6 @@ with col5:
 
 
 # =============================================================================
-# DISPLAY CHARTS
-# =============================================================================
-
-st.plotly_chart(create_price_chart(current_idx, anomalies), width='stretch')
-st.plotly_chart(create_zscore_chart(current_idx), width='stretch')
-st.plotly_chart(create_volume_chart(current_idx), width='stretch')
-
-
-# =============================================================================
 # ANOMALY LOG
 # =============================================================================
 
@@ -629,8 +655,8 @@ st.markdown("### 📋 Anomaly Log")
 log_df = render_anomaly_log(anomalies, current_idx)
 if log_df is not None:
     st.dataframe(log_df, width='stretch', height=200)
-else:
-    st.info("No anomalies detected yet. Start the simulation to begin streaming.")
+elif st.session_state.sim_complete:
+    st.toast("No anomalies detected yet. Start the simulation to begin streaming.", icon="ℹ️")
 
 
 # =============================================================================
@@ -650,7 +676,7 @@ if st.session_state.sim_running and not st.session_state.sim_paused and not st.s
 if st.session_state.sim_complete:
     st.markdown("---")
     st.markdown("### 🔍 Post-Simulation Analysis")
-    st.success("✅ Simulation complete!")
+    st.toast("Simulation complete!", icon="✅")
     
     col1, col2, col3 = st.columns(3)
     total_anomalies = len(st.session_state.anomalies)
@@ -680,9 +706,4 @@ if st.session_state.sim_complete:
 # FOOTER
 # =============================================================================
 
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: gray;'>
-    Real-time IoT Simulation | IoT & Data Analytics Project
-</div>
-""", unsafe_allow_html=True)
+footer("Real-time Anomaly Detection")

@@ -23,6 +23,9 @@ from plotly.subplots import make_subplots
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import config
+from components import (
+    footer, 
+    title)
 from src.anomaly_detection import detect_anomalies
 from src.cross_asset import (
     analyze_asset_pair,
@@ -50,11 +53,9 @@ st.set_page_config(
     layout=config.LAYOUT
 )
 
-st.title("🔗 Cross-Asset Analysis")
-st.markdown("""
-Analyze relationships between multiple assets: correlations, 
-simultaneous movements, and systemic events.
-""")
+title("Cross-Asset Analysis",
+      """Analyze relationships between multiple assets: correlations,
+      simultaneous movements, and systemic events.""")
 
 
 # =============================================================================
@@ -72,7 +73,7 @@ def get_anomaly_details_by_date(anomaly_flags: dict) -> pd.DataFrame:
     anomaly_df = pd.DataFrame(anomaly_flags)
     
     # CRITICAL: Fill NaN with False BEFORE any operations
-    anomaly_df = anomaly_df.fillna(False).astype(bool)
+    anomaly_df = anomaly_df.infer_objects(copy = False).astype(bool)
     
     results = []
     for timestamp in anomaly_df.index:
@@ -100,7 +101,7 @@ def count_simultaneous_anomalies_consistent(anomaly_flags: dict) -> pd.Series:
     """
     anomaly_df = pd.DataFrame(anomaly_flags)
     # CRITICAL: Same fillna as get_anomaly_details_by_date
-    anomaly_df = anomaly_df.fillna(False).astype(bool)
+    anomaly_df = anomaly_df.infer_objects(copy=False).astype(bool)
     return anomaly_df.sum(axis=1)
 
 
@@ -109,12 +110,7 @@ def count_simultaneous_anomalies_consistent(anomaly_flags: dict) -> pd.Series:
 # =============================================================================
 
 with st.sidebar:
-    st.header("⚙️ Controls")
-    
-    # Granularity selection (only daily for cross-asset)
-    st.info("📊 Using **Daily** data for cross-asset analysis")
-    
-    st.markdown("---")
+    st.header("Controls")
     
     # Correlation window
     correlation_window = st.slider(
@@ -123,7 +119,7 @@ with st.sidebar:
         max_value=60,
         value=config.CORRELATION_WINDOW,
         step=5,
-        help="Number of days for rolling correlation calculation"
+        help="Number of days used to calculate rolling correlation. Smaller = more reactive, larger = more stable."
     )
     
     # Systemic event threshold
@@ -132,13 +128,13 @@ with st.sidebar:
         min_value=2,
         max_value=5,
         value=config.SYSTEMIC_EVENT_THRESHOLD,
-        help="Minimum assets with anomalies to flag as systemic event"
+        help="Minimum number of assets that must show anomalies simultaneously to flag as a systemic event."
     )
     
     st.markdown("---")
     
     # INFO BOX: Pearson Correlation
-    with st.expander("📊 Pearson Correlation", expanded=False):
+    with st.expander("Pearson Correlation", expanded=False):
         st.markdown("""
         **What is Pearson Correlation?**
         
@@ -187,7 +183,7 @@ with st.sidebar:
         """)
     
     # INFO BOX: Rolling Correlation
-    with st.expander("🔄 Rolling Correlation", expanded=False):
+    with st.expander("Rolling Correlation", expanded=False):
         st.markdown(f"""
         **Why use rolling correlation?**
         
@@ -236,7 +232,7 @@ with st.sidebar:
         """)
     
     # INFO BOX: Systemic Events
-    with st.expander("⚠️ Systemic Events", expanded=False):
+    with st.expander("Systemic Events", expanded=False):
         st.markdown(f"""
         **What are systemic events?**
         
@@ -282,7 +278,7 @@ with st.sidebar:
         """)
     
     # INFO BOX: Safe Haven vs Risk Assets
-    with st.expander("🛡️ Safe Haven Assets", expanded=False):
+    with st.expander("Safe Haven Assets", expanded=False):
         st.markdown("""
         **What are safe haven assets?**
         
@@ -331,7 +327,7 @@ with st.sidebar:
         """)
     
     # INFO BOX: Price Normalization
-    with st.expander("📈 Price Normalization", expanded=False):
+    with st.expander("Price Normalization", expanded=False):
         st.markdown("""
         **Why normalize prices?**
         
@@ -371,7 +367,7 @@ with st.sidebar:
         """)
     
     # INFO BOX: Hedging
-    with st.expander("🔀 Hedging with Correlation", expanded=False):
+    with st.expander("Hedging with Correlation", expanded=False):
         st.markdown("""
         **What is hedging?**
         
@@ -458,9 +454,6 @@ try:
     if len(all_data) < 2:
         st.error("Need at least 2 assets for cross-asset analysis.")
         st.stop()
-    
-    # Use toast for temporary notification
-    st.toast(f"Loaded {len(all_data)} assets: {', '.join(all_data.keys())}", icon="✅")
 
 except Exception as e:
     st.error(f"Error loading data: {e}")
@@ -486,7 +479,8 @@ with col1:
         "Start Date",
         value=min_date,
         min_value=min_date,
-        max_value=max_date
+        max_value=max_date,
+        help="Beginning of the analysis period. All calculations use data from this date onwards."
     )
 
 with col2:
@@ -494,7 +488,8 @@ with col2:
         "End Date",
         value=max_date,
         min_value=min_date,
-        max_value=max_date
+        max_value=max_date,
+        help="End of the analysis period. All calculations use data up to this date."
     )
 
 
@@ -521,7 +516,10 @@ except Exception as e:
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### 🔥 Correlation Matrix")
+st.markdown(
+    "### Correlation Matrix",
+    help="Correlation between assets based on daily returns. Values: -1 (inverse) to +1 (same direction). Diagonal = 1 (self)."
+          )
 
 # Calculate correlation matrix on returns
 returns_matrix = price_matrix.pct_change().dropna()
@@ -564,7 +562,7 @@ fig_heatmap.update_layout(
 st.plotly_chart(fig_heatmap, width='stretch')
 
 # Typical correlations info
-with st.expander("ℹ️ Typical Expected Correlations"):
+with st.expander("ℹ️  Typical Expected Correlations"):
     typical = get_typical_correlations()
     for pair, description in typical.items():
         if pair[0] in all_data and pair[1] in all_data:
@@ -578,9 +576,9 @@ with st.expander("ℹ️ Typical Expected Correlations"):
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### 📈 Normalized Price Comparison")
-
-st.markdown("All prices normalized to base 100 for comparison.")
+st.markdown("### Normalized Price Comparison",
+            help="All prices start at 100. Line at 120 = +20% gain. Line at 80 = -20% loss. Compare performance easily."
+)
 
 # Normalize prices
 norm_prices = normalize_prices(price_matrix)
@@ -599,7 +597,7 @@ for asset in norm_prices.columns:
             hovertemplate=(
                 f"<b>{display_name}</b><br>"
                 "Date: %{x}<br>"
-                "Value: %{y:.1f}<br>"
+                "Value: %{y:.1f} (started at 100)<br>"
                 "<extra></extra>"
             )
         )
@@ -609,12 +607,150 @@ fig_normalized.update_layout(
     height=450,
     title="Normalized Price Performance (Base = 100)",
     xaxis_title="Date",
-    yaxis_title="Normalized Value",
+    yaxis_title="Normalized Value (100 = start)",
     hovermode="x unified",
     legend=dict(orientation="h", yanchor="bottom", y=1.02)
 )
 
 st.plotly_chart(fig_normalized, width='stretch')
+
+# =============================================================================
+# SIMULTANEOUS ANOMALIES
+# =============================================================================
+
+st.markdown("---")
+st.markdown("### Simultaneous Anomalies")
+
+st.caption("""
+**Purpose:** Detect days when multiple assets showed anomalies at the same time.
+When many assets behave abnormally together, it suggests a market-wide event (systemic) rather than asset-specific news.
+""")
+
+# Use consistent functions for both chart and table
+anomaly_details = get_anomaly_details_by_date(anomaly_flags)
+anomaly_counts = count_simultaneous_anomalies_consistent(anomaly_flags)
+
+# Create systemic mask
+systemic_mask = anomaly_counts >= systemic_threshold
+
+# Summary metrics
+total_systemic = systemic_mask.sum()
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.metric(
+        "Total Days Analyzed", 
+        len(anomaly_counts),
+        help="Total number of trading days in the selected date range."
+    )
+with col2:
+    st.metric(
+        "Days with Any Anomaly", 
+        int((anomaly_counts > 0).sum()),
+        help="Number of days where at least ONE asset showed an anomaly (price, volume, or volatility)."
+    )
+with col3:
+    st.metric(
+        f"Systemic Events (≥{systemic_threshold} assets)", 
+        int(total_systemic),
+        help=f"Number of days where {systemic_threshold} or more assets showed anomalies simultaneously. These are potential market-wide events."
+    )
+
+# Prepare data for chart with asset names in customdata
+chart_dates = anomaly_counts.index.tolist()
+chart_counts = anomaly_counts.values.tolist()
+
+# Build assets string for each date
+assets_for_hover = []
+for date in chart_dates:
+    if date in anomaly_details.index:
+        assets_for_hover.append(anomaly_details.loc[date, "assets_str"])
+    else:
+        assets_for_hover.append("None")
+
+# Color bars by severity
+colors = [
+    config.COLOR_ANOMALY if c >= systemic_threshold else 
+    (config.COLOR_WARNING if c >= 2 else config.COLOR_NORMAL)
+    for c in chart_counts
+]
+
+st.caption(f"""
+**Bar height:** Number of assets with anomalies on that day.
+**Colors:** Blue = 1 asset, Orange = 2 assets, Red = {systemic_threshold}+ assets (systemic event).
+**Dashed line:** Systemic threshold ({systemic_threshold} assets).
+**Hover:** Shows which specific assets had anomalies.
+""")
+
+# Bar chart of simultaneous anomalies
+fig_simultaneous = go.Figure()
+
+fig_simultaneous.add_trace(
+    go.Bar(
+        x=chart_dates,
+        y=chart_counts,
+        marker_color=colors,
+        customdata=assets_for_hover,
+        hovertemplate=(
+            "<b>Date:</b> %{x}<br>"
+            "<b>Anomaly Count:</b> %{y}<br>"
+            "<b>Assets:</b> %{customdata}<br>"
+            "<extra></extra>"
+        )
+    )
+)
+
+# Threshold line
+fig_simultaneous.add_hline(
+    y=systemic_threshold,
+    line_dash="dash",
+    line_color=config.COLOR_ANOMALY,
+    annotation_text=f"Systemic threshold ({systemic_threshold})"
+)
+
+fig_simultaneous.update_layout(
+    height=350,
+    title="Simultaneous Anomalies per Day",
+    xaxis_title="Date",
+    yaxis_title="Number of Assets with Anomalies",
+    hovermode="x unified"
+)
+
+st.plotly_chart(fig_simultaneous, width='stretch')
+
+# Systemic events table (using same data source as chart)
+if total_systemic > 0:
+    st.markdown("#### Systemic Event Details")
+    
+    st.caption("""
+    **Table:** Lists all days classified as systemic events (≥ threshold assets anomalous).
+    **Date:** When the event occurred.
+    **Assets Affected:** How many assets showed anomalies.
+    **Which Assets:** Names of the specific assets involved.
+    """)
+    
+    # Filter anomaly_details for systemic events only
+    systemic_dates = anomaly_counts[systemic_mask].index
+    systemic_table_data = []
+    
+    for date in systemic_dates:
+        if date in anomaly_details.index:
+            row = anomaly_details.loc[date]
+            systemic_table_data.append({
+                "Date": str(date)[:10],
+                "Assets Affected": row["count"],
+                "Which Assets": row["assets_str"]
+            })
+    
+    if systemic_table_data:
+        systemic_df = pd.DataFrame(systemic_table_data)
+        systemic_df.index = range(1, len(systemic_df) + 1)
+        st.dataframe(systemic_df, width='stretch')
+    else:
+        st.info(f"No systemic events detected (threshold: {systemic_threshold}+ assets)")
+else:
+    st.info(f"No systemic events detected (threshold: {systemic_threshold}+ assets)")
 
 
 # =============================================================================
@@ -622,7 +758,12 @@ st.plotly_chart(fig_normalized, width='stretch')
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### 🔍 Pair Deep Dive")
+st.markdown("### Pair Deep Dive")
+
+st.caption("""
+**Purpose:** Analyze the relationship between two specific assets in detail.
+Select a pair below to see their correlation metrics, how correlation changes over time, and their return scatter plot.
+""")
 
 # Asset pair selection
 pairs = get_asset_pairs()
@@ -630,7 +771,8 @@ pair_names = [format_pair_name(a, b) for a, b in pairs]
 
 selected_pair_name = st.selectbox(
     "Select Asset Pair",
-    options=pair_names
+    options=pair_names,
+    help="Choose two assets to analyze their relationship in detail."
 )
 
 # Get selected pair
@@ -645,83 +787,49 @@ pair_analysis = analyze_asset_pair(
     window=correlation_window
 )
 
-# Display pair statistics with info popovers
+# Display pair statistics with help tooltips
 st.markdown("#### Correlation Metrics")
 
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    subcol1, subcol2 = st.columns([4, 1])
-    with subcol1:
-        st.metric(
-            "Static Correlation",
-            f"{pair_analysis['static_correlation']:.3f}"
-        )
-    with subcol2:
-        with st.popover("ℹ️"):
-            st.markdown("""
-            **Static Correlation**
-            
-            Single correlation value calculated over the **entire selected period**.
-            
-            Gives an overall view of the relationship, but misses how correlation changes over time.
-            """)
+    st.metric(
+        "Static Correlation",
+        f"{pair_analysis['static_correlation']:.3f}",
+        help="Single correlation value calculated over the ENTIRE selected period. Gives overall relationship but misses changes over time."
+    )
 
 with col2:
-    subcol1, subcol2 = st.columns([4, 1])
-    with subcol1:
-        st.metric(
-            "Current Correlation",
-            f"{pair_analysis['statistics']['current']:.3f}" 
-            if pair_analysis['statistics']['current'] else "-"
-        )
-    with subcol2:
-        with st.popover("ℹ️"):
-            st.markdown(f"""
-            **Current Correlation**
-            
-            The **most recent** value of the rolling correlation (last {correlation_window} days).
-            
-            Shows the current state of the relationship between the two assets.
-            """)
+    current_corr = pair_analysis['statistics']['current']
+    st.metric(
+        "Current Correlation",
+        f"{current_corr:.3f}" if current_corr else "-",
+        help=f"Most recent rolling correlation value (last {correlation_window} days). Shows the CURRENT state of the relationship."
+    )
 
 with col3:
-    subcol1, subcol2 = st.columns([4, 1])
-    with subcol1:
-        st.metric(
-            "Correlation Std",
-            f"{pair_analysis['statistics']['std']:.3f}"
-        )
-    with subcol2:
-        with st.popover("ℹ️"):
-            st.markdown("""
-            **Correlation Standard Deviation**
-            
-            Measures how much the rolling correlation **varies over time**.
-            
-            - **Low std (< 0.1)**: Stable relationship
-            - **High std (> 0.2)**: Volatile relationship, changes frequently
-            """)
+    st.metric(
+        "Correlation Std",
+        f"{pair_analysis['statistics']['std']:.3f}",
+        help="Standard deviation of rolling correlation. Low (<0.1) = stable relationship. High (>0.2) = volatile, changes frequently."
+    )
 
 with col4:
-    subcol1, subcol2 = st.columns([4, 1])
-    with subcol1:
-        st.metric(
-            "Correlation Anomalies",
-            pair_analysis['anomaly_count']
-        )
-    with subcol2:
-        with st.popover("ℹ️"):
-            st.markdown("""
-            **Correlation Anomalies**
-            
-            Number of times the rolling correlation deviated **more than 2 standard deviations** from its mean.
-            
-            High count indicates unstable or regime-changing relationship.
-            """)
+    st.metric(
+        "Correlation Anomalies",
+        pair_analysis['anomaly_count'],
+        help="Number of times rolling correlation deviated more than 2 standard deviations from its mean. High count = unstable relationship."
+    )
 
 # Rolling correlation chart
 st.markdown("#### Rolling Correlation Over Time")
+
+st.caption(f"""
+**Blue line:** Rolling {correlation_window}-day correlation between the two assets.
+**Gray dashed line:** Historical average correlation.
+**Orange dotted lines:** ±2 standard deviation bands - correlation outside these is unusual.
+**Red dots:** Correlation anomalies (outside ±2σ bands).
+""")
 
 fig_rolling = go.Figure()
 
@@ -778,7 +886,7 @@ if anomaly_mask.any():
                 color=config.COLOR_ANOMALY
             ),
             hovertemplate=(
-                "<b>⚠️ CORRELATION ANOMALY</b><br>"
+                "<b> CORRELATION ANOMALY</b><br>"
                 "Date: %{x}<br>"
                 "Correlation: %{y:.3f}<br>"
                 "<extra></extra>"
@@ -799,6 +907,13 @@ st.plotly_chart(fig_rolling, width='stretch')
 
 # Scatter plot of returns
 st.markdown("#### Return Scatter Plot")
+
+st.caption(f"""
+**Each dot:** One day's returns for both assets.
+**X-axis:** {config.ASSETS.get(asset_a, asset_a)} daily return (%).
+**Y-axis:** {config.ASSETS.get(asset_b, asset_b)} daily return (%).
+**Interpretation:** Dots along a diagonal line = correlated. Scattered randomly = uncorrelated. Opposite diagonal = negatively correlated.
+""")
 
 returns_a = pair_analysis["returns_a"].dropna()
 returns_b = pair_analysis["returns_b"].dropna()
@@ -837,133 +952,8 @@ fig_scatter.update_layout(
 
 st.plotly_chart(fig_scatter, width='stretch')
 
-
-# =============================================================================
-# SIMULTANEOUS ANOMALIES
-# =============================================================================
-
-st.markdown("---")
-st.markdown("### ⚠️ Simultaneous Anomalies")
-
-# Use consistent functions for both chart and table
-anomaly_details = get_anomaly_details_by_date(anomaly_flags)
-anomaly_counts = count_simultaneous_anomalies_consistent(anomaly_flags)
-
-# Create systemic mask
-systemic_mask = anomaly_counts >= systemic_threshold
-
-# Summary metrics
-total_systemic = systemic_mask.sum()
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    st.metric("Total Days Analyzed", len(anomaly_counts))
-with col2:
-    st.metric("Days with Any Anomaly", int((anomaly_counts > 0).sum()))
-with col3:
-    subcol1, subcol2 = st.columns([4, 1])
-    with subcol1:
-        st.metric(f"Systemic Events (≥{systemic_threshold} assets)", int(total_systemic))
-    with subcol2:
-        with st.popover("ℹ️"):
-            st.markdown(f"""
-            **Systemic Events**
-            
-            Days when **{systemic_threshold} or more assets** showed anomalies simultaneously.
-            
-            This suggests a market-wide event affecting multiple assets at once, rather than asset-specific news.
-            """)
-
-# Prepare data for chart with asset names in customdata
-chart_dates = anomaly_counts.index.tolist()
-chart_counts = anomaly_counts.values.tolist()
-
-# Build assets string for each date
-assets_for_hover = []
-for date in chart_dates:
-    if date in anomaly_details.index:
-        assets_for_hover.append(anomaly_details.loc[date, "assets_str"])
-    else:
-        assets_for_hover.append("None")
-
-# Color bars by severity
-colors = [
-    config.COLOR_ANOMALY if c >= systemic_threshold else 
-    (config.COLOR_WARNING if c >= 2 else config.COLOR_NORMAL)
-    for c in chart_counts
-]
-
-# Bar chart of simultaneous anomalies
-fig_simultaneous = go.Figure()
-
-fig_simultaneous.add_trace(
-    go.Bar(
-        x=chart_dates,
-        y=chart_counts,
-        marker_color=colors,
-        customdata=assets_for_hover,
-        hovertemplate=(
-            "<b>Date:</b> %{x}<br>"
-            "<b>Anomaly Count:</b> %{y}<br>"
-            "<b>Assets:</b> %{customdata}<br>"
-            "<extra></extra>"
-        )
-    )
-)
-
-# Threshold line
-fig_simultaneous.add_hline(
-    y=systemic_threshold,
-    line_dash="dash",
-    line_color=config.COLOR_ANOMALY,
-    annotation_text=f"Systemic threshold ({systemic_threshold})"
-)
-
-fig_simultaneous.update_layout(
-    height=350,
-    title="Simultaneous Anomalies per Day",
-    xaxis_title="Date",
-    yaxis_title="Number of Assets with Anomalies",
-    hovermode="x unified"
-)
-
-st.plotly_chart(fig_simultaneous, width='stretch')
-
-# Systemic events table (using same data source as chart)
-if total_systemic > 0:
-    st.markdown("#### Systemic Event Details")
-    
-    # Filter anomaly_details for systemic events only
-    systemic_dates = anomaly_counts[systemic_mask].index
-    systemic_table_data = []
-    
-    for date in systemic_dates:
-        if date in anomaly_details.index:
-            row = anomaly_details.loc[date]
-            systemic_table_data.append({
-                "Date": str(date)[:10],
-                "Assets Affected": row["count"],
-                "Which Assets": row["assets_str"]
-            })
-    
-    if systemic_table_data:
-        systemic_df = pd.DataFrame(systemic_table_data)
-        systemic_df.index = range(1, len(systemic_df) + 1)
-        st.dataframe(systemic_df, width='stretch')
-    else:
-        st.info(f"No systemic events detected (threshold: {systemic_threshold}+ assets)")
-else:
-    st.info(f"No systemic events detected (threshold: {systemic_threshold}+ assets)")
-
-
 # =============================================================================
 # FOOTER
 # =============================================================================
 
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: gray;'>
-    Cross-Asset Analysis | IoT & Data Analytics Project
-</div>
-""", unsafe_allow_html=True)
+footer("Cross-Asset Analysis")

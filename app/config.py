@@ -35,7 +35,7 @@ FILE_NAMES = {
 # =============================================================================
 
 # Base directory for all data files (relative to project root)
-DATA_BASE_PATH = "/Volumes/Hard Disk Esterno/IOT/data"
+DATA_BASE_PATH = "data"
 
 # Subdirectories for each granularity
 GRANULARITY_PATHS = {

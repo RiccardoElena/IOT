@@ -1,0 +1,15 @@
+# IoT Financial Data Analytics - Dependencies
+# Install with: pip install -r requirements.txt
+
+# Web framework
+streamlit>=1.31.0
+
+# Data visualization
+plotly>=5.18.0
+
+# Data manipulation
+pandas>=2.2.0
+numpy>=1.26.3
+
+# Scientific computing (for pattern detection)
+scipy>=1.12.0

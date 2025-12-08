@@ -56,7 +56,6 @@ st.markdown("""
 
 with st.sidebar:
     st.title(f"{config.PAGE_ICON} {config.PAGE_TITLE}")
-    st.markdown("---")
     
     # Project description
     st.markdown("""
@@ -170,10 +169,7 @@ try:
     df = load_single_asset(test_asset, test_granularity)
     record_count = len(df)
     
-    st.success(
-        f"✅ Data loaded successfully! "
-        f"Found {record_count:,} records for {test_asset} ({test_granularity})"
-    )
+    st.toast(f"Data loaded successfully!", icon="✅")
     
     # Show sample
     with st.expander("📋 Preview data"):

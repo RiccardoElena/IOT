@@ -23,6 +23,12 @@ from plotly.subplots import make_subplots
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import config
+
+from components import (
+    footer,
+    title,
+)
+
 from src.anomaly_detection import (
     count_anomalies,
     detect_anomalies,
@@ -48,22 +54,27 @@ st.set_page_config(
     layout=config.LAYOUT
 )
 
-st.title("📈 Single Asset Analysis")
-st.markdown("Explore individual asset data with anomaly detection.")
+title("Single Asset Analysis", "Explore individual asset data with anomaly detection.")
 
+
+def reset_zoom():
+  st.session_state.selected_zoom_range = None
+
+  st.session_state.anomaly_selector = None
 
 # =============================================================================
 # SIDEBAR - CONTROLS AND INFO
 # =============================================================================
 
 with st.sidebar:
-    st.header("⚙️ Controls")
+    st.header("Controls")
     
     # Asset selection
     asset_options = {key: get_asset_display_name(key) for key in config.ASSETS.keys()}
     selected_asset = st.selectbox(
         "Select Asset",
         options=list(asset_options.keys()),
+        on_change=reset_zoom,
         format_func=lambda x: asset_options[x]
     )
     
@@ -75,6 +86,7 @@ with st.sidebar:
     selected_granularity = st.selectbox(
         "Select Granularity",
         options=list(granularity_options.keys()),
+        on_change=reset_zoom,
         format_func=lambda x: granularity_options[x],
         index=2  # Default to daily
     )
@@ -97,7 +109,7 @@ with st.sidebar:
     st.markdown("---")
     
     # INFO BOX: About the Asset
-    with st.expander("📊 Asset Information", expanded=False):
+    with st.expander(" Asset Information", expanded=False):
         asset_info = {
             "sp500": """
             **S&P 500 Index**
@@ -205,7 +217,7 @@ with st.sidebar:
         st.markdown(asset_info.get(selected_asset, "Information not available."))
     
     # INFO BOX: About Z-Score
-    with st.expander("📊 Understanding Z-Score", expanded=False):
+    with st.expander(" Understanding Z-Score", expanded=False):
         st.markdown(f"""
         **What is Z-Score?**
         
@@ -250,7 +262,7 @@ with st.sidebar:
         """)
     
     # INFO BOX: About Candlesticks
-    with st.expander("🕯️ Reading Candlestick Charts", expanded=False):
+    with st.expander("Reading Candlestick Charts", expanded=False):
         st.markdown("""
         **Candlestick Anatomy:**
         
@@ -294,7 +306,7 @@ with st.sidebar:
         """)
     
     # INFO BOX: About Volume
-    with st.expander("📊 Understanding Volume", expanded=False):
+    with st.expander(" Understanding Volume", expanded=False):
         st.markdown("""
         **What is Volume?**
         
@@ -339,7 +351,7 @@ with st.sidebar:
         """)
     
     # INFO BOX: About Volatility
-    with st.expander("📈 Understanding Volatility", expanded=False):
+    with st.expander(" Understanding Volatility", expanded=False):
         st.markdown("""
         **What is Volatility?**
         
@@ -507,7 +519,7 @@ st.markdown("### 📅 Date Range")
 
 if selected_granularity == "minute":
     # Simple week selectbox for minute data
-    st.warning("⚠️ Minute data is limited to **one week at a time** for performance.")
+    st.toast("Minute data is limited to **one week at a time** for performance.", icon="⚠️")
     
     # Get available weeks
     weeks = get_available_weeks(selected_asset, selected_granularity)
@@ -522,8 +534,6 @@ if selected_granularity == "minute":
     
     start_date = weeks[selected_week]["start"]
     end_date = weeks[selected_week]["end"]
-    
-    st.info(f"📆 Showing: **{start_date}** to **{end_date}**")
 
 else:
     # Standard date selection for hourly/daily
@@ -571,30 +581,6 @@ except Exception as e:
     st.error(f"Error processing data: {e}")
     st.stop()
 
-
-# =============================================================================
-# SUMMARY METRICS
-# =============================================================================
-
-st.markdown("---")
-st.markdown("### 📊 Summary")
-
-# Count anomalies
-anomaly_counts = count_anomalies(df_processed)
-
-# Display metrics
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.metric("Total Records", f"{len(df_processed):,}")
-with col2:
-    st.metric("Price Anomalies", anomaly_counts["price"])
-with col3:
-    st.metric("Volume Anomalies", anomaly_counts["volume"])
-with col4:
-    st.metric("Volatility Anomalies", anomaly_counts["volatility"])
-
-
 # =============================================================================
 # ANOMALY NAVIGATION (Jump to anomaly feature)
 # =============================================================================
@@ -603,48 +589,15 @@ with col4:
 anomaly_df = get_anomaly_table(df_processed)
 
 # Store selected date range for zoom
-selected_zoom_range = None
-
-if len(anomaly_df) > 0:
-    st.markdown("---")
-    st.markdown("### 🎯 Jump to Anomaly")
-    
-    # Create options for selectbox
-    anomaly_options = ["Select an anomaly..."] + [
-        f"#{i}: {row['type']} - {str(row['timestamp'])[:19]} (Z={row['zscore']:.2f})"
-        for i, row in anomaly_df.iterrows()
-    ]
-    
-    selected_anomaly = st.selectbox(
-        "Navigate to anomaly",
-        options=anomaly_options,
-        help="Select an anomaly to zoom the chart to that time period"
-    )
-    
-    if selected_anomaly != "Select an anomaly...":
-        # Extract index from selection (format: "#1: ...")
-        anomaly_idx = int(selected_anomaly.split(":")[0].replace("#", ""))
-        anomaly_row = anomaly_df.loc[anomaly_idx]
-        anomaly_timestamp = anomaly_row["timestamp"]
-        
-        # Calculate zoom range (show +/- 5% of data around anomaly)
-        total_range = (df_processed.index.max() - df_processed.index.min())
-        zoom_delta = total_range * 0.05
-        
-        selected_zoom_range = {
-            "start": anomaly_timestamp - zoom_delta,
-            "end": anomaly_timestamp + zoom_delta
-        }
-        
-        st.info(f"📍 Zooming to anomaly at {str(anomaly_timestamp)[:19]}")
-
+if "selected_zoom_range" not in st.session_state:
+    st.session_state.selected_zoom_range = None
 
 # =============================================================================
 # MAIN CHARTS
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### 📈 Price & Volume")
+st.markdown("###  Price, Volume & Volatility")
 
 # Get column names
 open_col = config.COLUMNS["open"]
@@ -653,13 +606,13 @@ low_col = config.COLUMNS["low"]
 close_col = config.COLUMNS["close"]
 volume_col = config.COLUMNS["volume"]
 
-# Create subplot figure with candlestick and volume
+# Create subplot figure with candlestick, volume, and volatility
 fig_main = make_subplots(
-    rows=2, cols=1,
+    rows=3, cols=1,
     shared_xaxes=True,
-    vertical_spacing=0.05,
-    row_heights=[0.7, 0.3],
-    subplot_titles=("Price (OHLC)", "Volume")
+    vertical_spacing=0.08,
+    row_heights=[0.6, 0.2, 0.2],
+    subplot_titles=("Price (OHLC)", "Volume", "Volatility")
 )
 
 # Candlestick chart
@@ -726,26 +679,122 @@ fig_main.add_trace(
     row=2, col=1
 )
 
+# Volatility chart (High-Low range) - LINE CHART
+df_processed["volatility_range"] = df_processed[high_col] - df_processed[low_col]
+
+# Separate normal and anomaly data for different styling
+anomaly_mask = df_processed["anomaly_volatility"] if show_anomalies else pd.Series([False] * len(df_processed))
+
+# Normal volatility line
+fig_main.add_trace(
+    go.Scatter(
+        x=df_processed.index,
+        y=df_processed["volatility_range"],
+        mode="lines",
+        name="Volatility",
+        line=dict(color=config.COLOR_NORMAL, width=2),
+        fill='tozeroy',
+        fillcolor='rgba(100, 149, 237, 0.2)',
+        hovertemplate=(
+            "Time: %{x}<br>"
+            "Range: $%{y:.2f}<br>"
+            "<extra></extra>"
+        )
+    ),
+    row=3, col=1
+)
+
+# Anomaly points
+if show_anomalies and anomaly_mask.any():
+    fig_main.add_trace(
+        go.Scatter(
+            x=df_processed[anomaly_mask].index,
+            y=df_processed[anomaly_mask]["volatility_range"],
+            mode="markers",
+            name="Volatility Anomaly",
+            marker=dict(
+                size=config.MARKER_SIZE_ANOMALY,
+                color=config.COLOR_ANOMALY,
+                symbol="diamond"
+            ),
+            hovertemplate=(
+                "<b>⚠️ VOLATILITY ANOMALY</b><br>"
+                "Time: %{x}<br>"
+                "Range: $%{y:.2f}<br>"
+                "<extra></extra>"
+            )
+        ),
+        row=3, col=1
+    )
+
 # Apply zoom if anomaly selected
-if selected_zoom_range is not None:
+if st.session_state.selected_zoom_range is not None:
     fig_main.update_xaxes(
-        range=[selected_zoom_range["start"], selected_zoom_range["end"]]
+        range=[st.session_state.selected_zoom_range["start"], st.session_state.selected_zoom_range["end"]]
     )
 
 # Update layout
 fig_main.update_layout(
-    height=600,
+    height=750,
     showlegend=True,
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1),
     xaxis_rangeslider_visible=False,
     hovermode="x unified"
 )
 
-fig_main.update_xaxes(title_text="Date", row=2, col=1)
 fig_main.update_yaxes(title_text="Price", row=1, col=1)
 fig_main.update_yaxes(title_text="Volume", row=2, col=1)
+fig_main.update_yaxes(title_text="Range ($)", row=3, col=1)
+fig_main.update_xaxes(title_text="Date", row=3, col=1)
 
 st.plotly_chart(fig_main, width='stretch')
+
+if len(anomaly_df) > 0:
+    col1, col2 = st.columns([4, 1])
+
+    
+    with col1:
+      st.markdown("#### Jump to Anomaly")  
+    with col2:
+        if st.button("🔄 Reset Zoom", width='stretch'):
+            st.session_state.selected_zoom_range = None
+            if "anomaly_selector" in st.session_state:
+                st.session_state.anomaly_selector = None
+            st.rerun()
+
+    # Create options for selectbox
+    anomaly_options = [
+        f"#{i}: {row['type']} - {str(row['timestamp'])[:19]} (Z={row['zscore']:.2f})"
+        for i, row in anomaly_df.iterrows()
+    ]
+
+    def on_anomaly_select():
+        """Callback when anomaly is selected"""
+        selected = st.session_state.anomaly_selector
+        
+        if selected != "Select an anomaly...":
+            # Extract index from selection (format: "#1: ...")
+            anomaly_idx = int(selected.split(":")[0].replace("#", ""))
+            anomaly_row = anomaly_df.loc[anomaly_idx]
+            anomaly_timestamp = anomaly_row["timestamp"]
+            
+            # Calculate zoom range (show +/- 5% of data around anomaly)
+            total_range = (df_processed.index.max() - df_processed.index.min())
+            zoom_delta = total_range * 0.05
+            
+            st.session_state.selected_zoom_range = {
+                "start": anomaly_timestamp - zoom_delta,
+                "end": anomaly_timestamp + zoom_delta
+            }
+    
+    selected_anomaly = st.selectbox(
+        "Navigate to anomaly",
+        options=anomaly_options,
+        help="Select an anomaly to zoom the chart to that time period",
+        key="anomaly_selector",
+        placeholder="Select an anomaly...",
+        on_change=on_anomaly_select
+    )
 
 
 # =============================================================================
@@ -753,7 +802,7 @@ st.plotly_chart(fig_main, width='stretch')
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### 📉 Z-Score Analysis")
+st.markdown("### Z-Score Analysis")
 
 # Get threshold lines
 thresholds = get_threshold_lines(zscore_threshold)
@@ -852,9 +901,9 @@ def create_zscore_chart(
     )
     
     # Apply zoom if anomaly selected
-    if selected_zoom_range is not None:
+    if st.session_state.selected_zoom_range is not None:
         fig.update_xaxes(
-            range=[selected_zoom_range["start"], selected_zoom_range["end"]]
+            range=[st.session_state.selected_zoom_range["start"], st.session_state.selected_zoom_range["end"]]
         )
     
     fig.update_layout(
@@ -897,13 +946,34 @@ with tab3:
     )
     st.plotly_chart(fig_zscore_volatility, width='stretch')
 
+# =============================================================================
+# SUMMARY METRICS
+# =============================================================================
+
+st.markdown("---")
+st.markdown("###  Summary")
+
+# Count anomalies
+anomaly_counts = count_anomalies(df_processed)
+
+# Display metrics
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    st.metric("Total Records", f"{len(df_processed):,}")
+with col2:
+    st.metric("Price Anomalies", anomaly_counts["price"])
+with col3:
+    st.metric("Volume Anomalies", anomaly_counts["volume"])
+with col4:
+    st.metric("Volatility Anomalies", anomaly_counts["volatility"])
 
 # =============================================================================
 # ANOMALY TABLE
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### 🔍 Anomaly Details")
+st.markdown("### Anomaly Details")
 
 if len(anomaly_df) > 0:
     # Format the table for display
@@ -973,13 +1043,4 @@ else:
     """)
 
 
-# =============================================================================
-# FOOTER
-# =============================================================================
-
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: gray;'>
-    Single Asset Analysis | IoT & Data Analytics Project
-</div>
-""", unsafe_allow_html=True)
+footer("Single Asset Analysis")

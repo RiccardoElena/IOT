@@ -1,7 +1,7 @@
 """
 Real-time Anomaly Detection Page (IoT Simulation)
 
-Version 2: Uses st.rerun() based architecture for smooth updates and responsive controls.
+Version 3: Uses make_subplots for perfect X-axis alignment across all charts.
 """
 
 import os
@@ -11,6 +11,7 @@ import time
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 
 # Add parent directory to path for imports
@@ -241,7 +242,7 @@ if "sim_key" not in st.session_state or st.session_state.sim_key != sim_key:
 # =============================================================================
 
 chart_config = {
-        'displayModeBar': False,
+    'displayModeBar': False,
 }
 
 def get_severity(zscore: float, threshold: float) -> str:
@@ -299,14 +300,29 @@ def process_batch(start_idx, batch_size, prices, window, threshold, timestamps, 
     return end_idx, existing_anomalies + new_anomalies
 
 
-def create_price_chart(current_idx, anomalies):
-    """Create the price chart with anomaly markers."""
-    fig = go.Figure()
+def create_combined_chart(current_idx, anomalies):
+    """Create a combined chart with 3 subplots sharing X axis."""
+    
+    # Create subplots: 3 rows, shared X axis
+    fig = make_subplots(
+        rows=3, 
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.06,
+        row_heights=[0.45, 0.30, 0.25],
+        subplot_titles=("Price (Streaming)", "Rolling Z-Score", "Volume")
+    )
     
     if current_idx > 0:
         display_timestamps = timestamps[:current_idx]
         display_prices = prices[:current_idx]
+        display_volumes = volumes[:current_idx]
         
+        # =====================================================================
+        # ROW 1: PRICE CHART
+        # =====================================================================
+        
+        # Price line
         fig.add_trace(
             go.Scatter(
                 x=display_timestamps,
@@ -314,32 +330,12 @@ def create_price_chart(current_idx, anomalies):
                 mode="lines",
                 name="Price",
                 line=dict(color=config.COLOR_NORMAL, width=2),
-                hovertemplate="Time: %{x}<br>Price: $%{y:.2f}<extra></extra>"
-            )
+                hovertemplate="Price: $%{y:.2f}<extra></extra>"
+            ),
+            row=1, col=1
         )
         
-        if current_idx > window_size:
-            window_start_idx = current_idx - window_size
-            fig.add_vrect(
-                x0=timestamps[window_start_idx],
-                x1=timestamps[current_idx - 1],
-                fillcolor="rgba(100, 149, 237, 0.2)",
-                line_width=2,
-                line_color="rgba(100, 149, 237, 0.8)",
-                annotation_text="Analysis Window",
-                annotation_position="top left"
-            )
-        else:
-            fig.add_vrect(
-                x0=timestamps[0],
-                x1=timestamps[current_idx - 1],
-                fillcolor="rgba(255, 193, 7, 0.2)",
-                line_width=2,
-                line_color="rgba(255, 193, 7, 0.8)",
-                annotation_text=f"Building Window ({current_idx}/{window_size})",
-                annotation_position="top left"
-            )
-        
+        # Anomaly markers on price
         visible_anomalies = [a for a in anomalies if a["idx"] < current_idx]
         if visible_anomalies:
             fig.add_trace(
@@ -348,97 +344,142 @@ def create_price_chart(current_idx, anomalies):
                     y=[a["price"] for a in visible_anomalies],
                     mode="markers",
                     name="Anomaly",
-                    marker=dict(size=15, color=config.COLOR_ANOMALY, symbol="x", line=dict(width=2)),
+                    marker=dict(size=12, color=config.COLOR_ANOMALY, symbol="x", line=dict(width=2)),
                     customdata=[a["zscore"] for a in visible_anomalies],
-                    hovertemplate="<b>⚠️ ANOMALY</b><br>Time: %{x}<br>Price: $%{y:.2f}<br>Z-Score: %{customdata:.2f}σ<extra></extra>"
-                )
+                    hovertemplate="<b>⚠️ ANOMALY</b><br>Price: $%{y:.2f}<br>Z-Score: %{customdata:.2f}σ<extra></extra>"
+                ),
+                row=1, col=1
             )
-    else:
-        fig.add_annotation(
-            x=0.5, y=0.5,
-            xref="paper", yref="paper",
-            text="Press ▶️ Start to begin streaming simulation",
-            showarrow=False,
-            font=dict(size=18, color="gray")
-        )
-    
-    fig.update_layout(
-        title=dict(text="Price (Streaming)", font=dict(size=14)),
-        xaxis=dict(title="", showticklabels=False),  # Nascondi x-axis
-        yaxis_title="Price ($)",
-        height=280,
-        margin=dict(l=60, r=20, t=20, b=0),  # Margini stretti
-        hovermode="x unified",
-        showlegend=True
-    )
-    
-    return fig
-
-
-def create_zscore_chart(current_idx):
-    """Create the rolling Z-score chart."""
-    fig = go.Figure()
-    
-    if current_idx > window_size:
-        zscores = []
-        zscore_times = []
         
-        for i in range(window_size, current_idx):
-            window_data = prices[i - window_size:i]
-            mean = np.mean(window_data)
-            std = np.std(window_data)
-            if std > 0:
-                zscores.append((prices[i] - mean) / std)
-                zscore_times.append(timestamps[i])
-        
-        if zscores:
-            fig.add_trace(
-                go.Scatter(
-                    x=zscore_times,
-                    y=zscores,
-                    mode="lines",
-                    name="Z-Score",
-                    line=dict(color=config.COLOR_NORMAL, width=2),
-                    fill='tozeroy',
-                    fillcolor='rgba(100, 149, 237, 0.1)'
-                )
+        # Window rectangle on price chart
+        if current_idx > window_size:
+            window_start_idx = current_idx - window_size
+            fig.add_vrect(
+                x0=timestamps[window_start_idx],
+                x1=timestamps[current_idx - 1],
+                fillcolor="rgba(100, 149, 237, 0.2)",
+                line_width=2,
+                line_color="rgba(100, 149, 237, 0.8)",
+                row=1, col=1
             )
+        else:
+            fig.add_vrect(
+                x0=timestamps[0],
+                x1=timestamps[current_idx - 1],
+                fillcolor="rgba(255, 193, 7, 0.2)",
+                line_width=2,
+                line_color="rgba(255, 193, 7, 0.8)",
+                annotation_text=f"Building ({current_idx}/{window_size})",
+                annotation_position="top left",
+                annotation_font_size=10,
+                row=1, col=1
+            )
+        
+        # =====================================================================
+        # ROW 2: Z-SCORE CHART
+        # =====================================================================
+        
+        if current_idx > 1:
+            zscores = []
             
-            fig.add_hline(y=zscore_threshold, line_dash="dash", line_color=config.COLOR_ANOMALY, 
-                         annotation_text=f"+{zscore_threshold}σ", annotation_position="right")
-            fig.add_hline(y=-zscore_threshold, line_dash="dash", line_color=config.COLOR_ANOMALY,
-                         annotation_text=f"-{zscore_threshold}σ", annotation_position="right")
-            fig.add_hline(y=0, line_color="gray", line_width=1)
-    else:
-        remaining = window_size - current_idx
-        fig.add_annotation(
-            x=0.5, y=0.5,
-            xref="paper", yref="paper",
-            text=f"Z-Score available after {window_size} points ({remaining} more needed)" if current_idx > 0 else "Waiting for data...",
-            showarrow=False,
-            font=dict(size=14, color="gray")
-        )
-    
-    fig.update_layout(
-        title=dict(text="Rolling Z-Score", font=dict(size=14)),
-        xaxis=dict(title="", showticklabels=False),  # Nascondi x-axis
-        yaxis_title="Z-Score (σ)",
-        height=230,
-        margin=dict(l=60, r=20, t=20, b=0),  # Margini stretti
-        hovermode="x unified",
-        showlegend=True
-    )
-    
-    return fig
-
-
-def create_volume_chart(current_idx):
-    """Create the volume chart."""
-    fig = go.Figure()
-    
-    if current_idx > 0:
-        display_timestamps = timestamps[:current_idx]
-        display_volumes = volumes[:current_idx]
+            for i in range(current_idx):
+                if i < 2:
+                    zscores.append(0)
+                elif i < window_size:
+                    # Building phase: use all available points
+                    window_data = prices[:i]
+                    current_price = prices[i]
+                    mean = np.mean(window_data)
+                    std = np.std(window_data)
+                    if std > 0:
+                        zscores.append((current_price - mean) / std)
+                    else:
+                        zscores.append(0)
+                else:
+                    # Stable phase: use full window
+                    window_data = prices[i - window_size:i]
+                    current_price = prices[i]
+                    mean = np.mean(window_data)
+                    std = np.std(window_data)
+                    if std > 0:
+                        zscores.append((current_price - mean) / std)
+                    else:
+                        zscores.append(0)
+            
+            # Split into building (yellow) and stable (blue) segments
+            if current_idx <= window_size:
+                # All points in building phase
+                fig.add_trace(
+                    go.Scatter(
+                        x=display_timestamps,
+                        y=zscores,
+                        mode="lines",
+                        name="Z-Score (building)",
+                        line=dict(color="rgba(255, 193, 7, 1)", width=2),
+                        fill='tozeroy',
+                        fillcolor='rgba(255, 193, 7, 0.15)',
+                        hovertemplate="Z-Score: %{y:.2f}σ <i>(building)</i><extra></extra>"
+                    ),
+                    row=2, col=1
+                )
+            else:
+                # Split: yellow for building, blue for stable
+                split_idx = window_size
+                
+                # Building phase (yellow)
+                fig.add_trace(
+                    go.Scatter(
+                        x=display_timestamps[:split_idx + 1],
+                        y=zscores[:split_idx + 1],
+                        mode="lines",
+                        name="Z-Score (building)",
+                        line=dict(color="rgba(255, 193, 7, 1)", width=2),
+                        fill='tozeroy',
+                        fillcolor='rgba(255, 193, 7, 0.15)',
+                        hovertemplate="Z-Score: %{y:.2f}σ <i>(building)</i><extra></extra>"
+                    ),
+                    row=2, col=1
+                )
+                
+                # Stable phase (blue)
+                fig.add_trace(
+                    go.Scatter(
+                        x=display_timestamps[split_idx:],
+                        y=zscores[split_idx:],
+                        mode="lines",
+                        name="Z-Score (stable)",
+                        line=dict(color=config.COLOR_NORMAL, width=2),
+                        fill='tozeroy',
+                        fillcolor='rgba(100, 149, 237, 0.1)',
+                        hovertemplate="Z-Score: %{y:.2f}σ<extra></extra>"
+                    ),
+                    row=2, col=1
+                )
+            
+            # Threshold lines for Z-Score
+            fig.add_hline(
+                y=zscore_threshold, 
+                line_dash="dash", 
+                line_color=config.COLOR_ANOMALY,
+                annotation_text=f"+{zscore_threshold}σ",
+                annotation_position="right",
+                annotation_font_size=10,
+                row=2, col=1
+            )
+            fig.add_hline(
+                y=-zscore_threshold, 
+                line_dash="dash", 
+                line_color=config.COLOR_ANOMALY,
+                annotation_text=f"-{zscore_threshold}σ",
+                annotation_position="right",
+                annotation_font_size=10,
+                row=2, col=1
+            )
+            fig.add_hline(y=0, line_color="gray", line_width=1, row=2, col=1)
+        
+        # =====================================================================
+        # ROW 3: VOLUME CHART
+        # =====================================================================
         
         fig.add_trace(
             go.Bar(
@@ -447,27 +488,52 @@ def create_volume_chart(current_idx):
                 name="Volume",
                 marker_color=config.COLOR_NORMAL,
                 opacity=0.7,
-                hovertemplate="Time: %{x}<br>Volume: %{y:,.0f}<extra></extra>"
-            )
+                hovertemplate="Volume: %{y:,.0f}<extra></extra>"
+            ),
+            row=3, col=1
         )
+    
     else:
+        # No data yet - show waiting message
         fig.add_annotation(
             x=0.5, y=0.5,
             xref="paper", yref="paper",
-            text="Waiting for data...",
+            text="Press ▶️ Start to begin streaming simulation",
             showarrow=False,
-            font=dict(size=14, color="gray")
+            font=dict(size=18, color="gray")
         )
     
+    # =========================================================================
+    # LAYOUT
+    # =========================================================================
+    
     fig.update_layout(
-        title=dict(text="Volume", font=dict(size=14)),
-        xaxis_title="Time",  # Solo questo ha le label x
-        yaxis_title="Volume",
-        height=180,
-        margin=dict(l=60, r=20, t=20, b=40),  # Bottom margin per le label
+        height=650,
         hovermode="x unified",
-        showlegend=True
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=10)
+        ),
+        margin=dict(l=60, r=20, t=60, b=40),
     )
+    
+    # Update Y-axis labels
+    fig.update_yaxes(title_text="Price ($)", row=1, col=1)
+    fig.update_yaxes(title_text="Z-Score (σ)", row=2, col=1)
+    fig.update_yaxes(title_text="Volume", row=3, col=1)
+    
+    # Only show X-axis label on bottom chart
+    fig.update_xaxes(title_text="Time", row=3, col=1)
+    
+    # Style subplot titles
+    for annotation in fig['layout']['annotations']:
+        if annotation['text'] in ["Price (Streaming)", "Rolling Z-Score", "Volume"]:
+            annotation['font'] = dict(size=12, color="gray")
     
     return fig
 
@@ -493,7 +559,6 @@ def render_anomaly_log(anomalies, current_idx):
 # CONTROL BUTTONS
 # =============================================================================
 
-# st.markdown("---")
 st.markdown("#### Simulation Controls")
 
 col1, col2, col3, col4 = st.columns(4)
@@ -501,29 +566,29 @@ col1, col2, col3, col4 = st.columns(4)
 with col1:
     start_btn = st.button(
         "▶️ Start", 
-        width='stretch', 
+        use_container_width=True, 
         disabled=st.session_state.sim_running or st.session_state.sim_complete
     )
 
 with col2:
     if st.session_state.sim_paused:
-        resume_btn = st.button("▶️ Resume", width='stretch')
+        resume_btn = st.button("▶️ Resume", use_container_width=True)
         pause_btn = False
     else:
         pause_btn = st.button(
             "⏸️ Pause", 
-            width='stretch',
+            use_container_width=True,
             disabled=not st.session_state.sim_running
         )
         resume_btn = False
 
 with col3:
-    reset_btn = st.button("🔄 Reset", width='stretch')
+    reset_btn = st.button("🔄 Reset", use_container_width=True)
 
 with col4:
     run_all_btn = st.button(
         "⏭️ Run All", 
-        width='stretch', 
+        use_container_width=True, 
         disabled=st.session_state.sim_running or st.session_state.sim_complete
     )
 
@@ -574,7 +639,7 @@ if st.session_state.sim_running and not st.session_state.sim_paused:
     
     if current_idx < len(df_day):
         # Process a batch of points
-        batch_size = sim_speed  # Points per batch = speed setting
+        batch_size = sim_speed
         new_idx, new_anomalies = process_batch(
             current_idx, 
             batch_size, 
@@ -598,25 +663,23 @@ if st.session_state.sim_running and not st.session_state.sim_paused:
 
 
 # =============================================================================
-# DISPLAY METRICS
+# DISPLAY CHART
 # =============================================================================
 
 current_idx = st.session_state.current_idx
 anomalies = st.session_state.anomalies
 
+# Single combined chart with perfect alignment
+st.plotly_chart(
+    create_combined_chart(current_idx, anomalies), 
+    use_container_width=True, 
+    config=chart_config
+)
+
 # =============================================================================
-# DISPLAY CHARTS
+# METRICS ROW
 # =============================================================================
 
-st.plotly_chart(create_price_chart(current_idx, anomalies), width='stretch', config=chart_config)
-# st.markdown("<div style='margin-top: -30px;'></div>", unsafe_allow_html=True)
-
-st.plotly_chart(create_zscore_chart(current_idx), width='stretch', config=chart_config)
-# st.markdown("<div style='margin-top: -30px;'></div>", unsafe_allow_html=True)
-
-st.plotly_chart(create_volume_chart(current_idx), width='stretch', config=chart_config)
-
-# Metrics row
 col1, col2, col3, col4, col5 = st.columns(5)
 
 progress = (current_idx / len(df_day)) * 100 if len(df_day) > 0 else 0
@@ -654,9 +717,9 @@ st.markdown("### 📋 Anomaly Log")
 
 log_df = render_anomaly_log(anomalies, current_idx)
 if log_df is not None:
-    st.dataframe(log_df, width='stretch', height=200)
+    st.dataframe(log_df, use_container_width=True, height=200)
 elif st.session_state.sim_complete:
-    st.toast("No anomalies detected yet. Start the simulation to begin streaming.", icon="ℹ️")
+    st.toast("No anomalies detected during this simulation.", icon="ℹ️")
 
 
 # =============================================================================
@@ -664,7 +727,6 @@ elif st.session_state.sim_complete:
 # =============================================================================
 
 if st.session_state.sim_running and not st.session_state.sim_paused and not st.session_state.sim_complete:
-    # Small delay for smooth rendering (~5 FPS)
     time.sleep(0.2)
     st.rerun()
 

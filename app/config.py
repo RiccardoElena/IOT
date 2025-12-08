@@ -5,6 +5,8 @@ All configurable parameters are centralized here.
 Change values here to adapt the project to different datasets.
 """
 
+import os
+
 # =============================================================================
 # ASSET CONFIGURATION
 # =============================================================================
@@ -34,8 +36,10 @@ FILE_NAMES = {
 # DATA PATHS
 # =============================================================================
 
-# Base directory for all data files (relative to project root)
-DATA_BASE_PATH = "data"
+# Base directory for all data files (relative to config.py location)
+_CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_BASE_PATH = os.path.join(_CONFIG_DIR, "..", "data")
+DATA_BASE_PATH = os.path.abspath(DATA_BASE_PATH)  # Convert to absolute path
 
 # Subdirectories for each granularity
 GRANULARITY_PATHS = {

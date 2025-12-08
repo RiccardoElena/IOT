@@ -73,7 +73,7 @@ def get_anomaly_details_by_date(anomaly_flags: dict) -> pd.DataFrame:
     anomaly_df = pd.DataFrame(anomaly_flags)
     
     # CRITICAL: Fill NaN with False BEFORE any operations
-    anomaly_df = anomaly_df.infer_objects(copy = False).astype(bool)
+    anomaly_df = anomaly_df.fillna(False).astype(bool)
     
     results = []
     for timestamp in anomaly_df.index:
@@ -101,7 +101,7 @@ def count_simultaneous_anomalies_consistent(anomaly_flags: dict) -> pd.Series:
     """
     anomaly_df = pd.DataFrame(anomaly_flags)
     # CRITICAL: Same fillna as get_anomaly_details_by_date
-    anomaly_df = anomaly_df.infer_objects(copy=False).astype(bool)
+    anomaly_df = anomaly_df.fillna(False).astype(bool)
     return anomaly_df.sum(axis=1)
 
 
@@ -559,7 +559,7 @@ fig_heatmap.update_layout(
     title="Asset Return Correlations"
 )
 
-st.plotly_chart(fig_heatmap, use_container_width=True)
+st.plotly_chart(fig_heatmap, width='stretch')
 
 # Typical correlations info
 with st.expander("ℹ️  Typical Expected Correlations"):
@@ -612,7 +612,7 @@ fig_normalized.update_layout(
     legend=dict(orientation="h", yanchor="bottom", y=1.02)
 )
 
-st.plotly_chart(fig_normalized, use_container_width=True)
+st.plotly_chart(fig_normalized, width='stretch')
 
 
 # =============================================================================
@@ -712,7 +712,7 @@ fig_simultaneous.update_layout(
     hovermode="x unified"
 )
 
-st.plotly_chart(fig_simultaneous, use_container_width=True)
+st.plotly_chart(fig_simultaneous, width='stretch')
 
 # Systemic events table (using same data source as chart)
 if total_systemic > 0:
@@ -737,7 +737,7 @@ if total_systemic > 0:
     if systemic_table_data:
         systemic_df = pd.DataFrame(systemic_table_data)
         systemic_df.index = range(1, len(systemic_df) + 1)
-        st.dataframe(systemic_df, use_container_width=True)
+        st.dataframe(systemic_df, width='stretch')
     else:
         st.info(f"No systemic events detected (threshold: {systemic_threshold}+ assets)")
 else:
@@ -888,7 +888,7 @@ fig_rolling.update_layout(
     hovermode="x unified"
 )
 
-st.plotly_chart(fig_rolling, use_container_width=True)
+st.plotly_chart(fig_rolling, width='stretch')
 
 # Scatter plot of returns
 st.markdown(
@@ -931,7 +931,7 @@ fig_scatter.update_layout(
     yaxis_title=f"{config.ASSETS.get(asset_b, asset_b)} Return (%)"
 )
 
-st.plotly_chart(fig_scatter, use_container_width=True)
+st.plotly_chart(fig_scatter, width='stretch')
 
 # =============================================================================
 # FOOTER

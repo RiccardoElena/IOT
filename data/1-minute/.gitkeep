@@ -1,0 +1,4 @@
+# Place your minute-level CSV files here
+# Expected files: sp500.csv, gold.csv, oil.csv, usd.csv, btc.csv
+#
+# You can change file names in config.py under FILE_NAMES

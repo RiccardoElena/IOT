@@ -559,7 +559,7 @@ fig_heatmap.update_layout(
     title="Asset Return Correlations"
 )
 
-st.plotly_chart(fig_heatmap, width='stretch')
+st.plotly_chart(fig_heatmap, use_container_width=True)
 
 # Typical correlations info
 with st.expander("ℹ️  Typical Expected Correlations"):
@@ -612,19 +612,18 @@ fig_normalized.update_layout(
     legend=dict(orientation="h", yanchor="bottom", y=1.02)
 )
 
-st.plotly_chart(fig_normalized, width='stretch')
+st.plotly_chart(fig_normalized, use_container_width=True)
+
 
 # =============================================================================
 # SIMULTANEOUS ANOMALIES
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### Simultaneous Anomalies")
-
-st.caption("""
-**Purpose:** Detect days when multiple assets showed anomalies at the same time.
-When many assets behave abnormally together, it suggests a market-wide event (systemic) rather than asset-specific news.
-""")
+st.subheader(
+    "Simultaneous Anomalies",
+    help="Detects days when multiple assets showed anomalies together. When many assets behave abnormally simultaneously, it suggests a market-wide (systemic) event rather than asset-specific news."
+)
 
 # Use consistent functions for both chart and table
 anomaly_details = get_anomaly_details_by_date(anomaly_flags)
@@ -676,13 +675,6 @@ colors = [
     for c in chart_counts
 ]
 
-st.caption(f"""
-**Bar height:** Number of assets with anomalies on that day.
-**Colors:** Blue = 1 asset, Orange = 2 assets, Red = {systemic_threshold}+ assets (systemic event).
-**Dashed line:** Systemic threshold ({systemic_threshold} assets).
-**Hover:** Shows which specific assets had anomalies.
-""")
-
 # Bar chart of simultaneous anomalies
 fig_simultaneous = go.Figure()
 
@@ -711,24 +703,23 @@ fig_simultaneous.add_hline(
 
 fig_simultaneous.update_layout(
     height=350,
-    title="Simultaneous Anomalies per Day",
+    title=dict(
+        text=f"Simultaneous Anomalies per Day<br><sup>Blue = 1 asset | Orange = 2 assets | Red = {systemic_threshold}+ assets (systemic)</sup>",
+        font=dict(size=14)
+    ),
     xaxis_title="Date",
     yaxis_title="Number of Assets with Anomalies",
     hovermode="x unified"
 )
 
-st.plotly_chart(fig_simultaneous, width='stretch')
+st.plotly_chart(fig_simultaneous, use_container_width=True)
 
 # Systemic events table (using same data source as chart)
 if total_systemic > 0:
-    st.markdown("#### Systemic Event Details")
-    
-    st.caption("""
-    **Table:** Lists all days classified as systemic events (≥ threshold assets anomalous).
-    **Date:** When the event occurred.
-    **Assets Affected:** How many assets showed anomalies.
-    **Which Assets:** Names of the specific assets involved.
-    """)
+    st.markdown(
+        "#### Systemic Event Details",
+        help="Lists all days classified as systemic events (≥ threshold assets anomalous). Shows date, count of affected assets, and which specific assets were involved."
+    )
     
     # Filter anomaly_details for systemic events only
     systemic_dates = anomaly_counts[systemic_mask].index
@@ -746,7 +737,7 @@ if total_systemic > 0:
     if systemic_table_data:
         systemic_df = pd.DataFrame(systemic_table_data)
         systemic_df.index = range(1, len(systemic_df) + 1)
-        st.dataframe(systemic_df, width='stretch')
+        st.dataframe(systemic_df, use_container_width=True)
     else:
         st.info(f"No systemic events detected (threshold: {systemic_threshold}+ assets)")
 else:
@@ -758,12 +749,10 @@ else:
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### Pair Deep Dive")
-
-st.caption("""
-**Purpose:** Analyze the relationship between two specific assets in detail.
-Select a pair below to see their correlation metrics, how correlation changes over time, and their return scatter plot.
-""")
+st.subheader(
+    "Pair Deep Dive",
+    help="Analyze the relationship between two specific assets in detail. See their correlation metrics, how correlation changes over time, and their return scatter plot."
+)
 
 # Asset pair selection
 pairs = get_asset_pairs()
@@ -822,14 +811,10 @@ with col4:
     )
 
 # Rolling correlation chart
-st.markdown("#### Rolling Correlation Over Time")
-
-st.caption(f"""
-**Blue line:** Rolling {correlation_window}-day correlation between the two assets.
-**Gray dashed line:** Historical average correlation.
-**Orange dotted lines:** ±2 standard deviation bands - correlation outside these is unusual.
-**Red dots:** Correlation anomalies (outside ±2σ bands).
-""")
+st.markdown(
+    "#### Rolling Correlation Over Time",
+    help=f"Blue line: Rolling {correlation_window}-day correlation. Gray dashed: Historical average. Orange dotted: ±2σ bands. Red dots: Anomalies (outside bands)."
+)
 
 fig_rolling = go.Figure()
 
@@ -903,17 +888,13 @@ fig_rolling.update_layout(
     hovermode="x unified"
 )
 
-st.plotly_chart(fig_rolling, width='stretch')
+st.plotly_chart(fig_rolling, use_container_width=True)
 
 # Scatter plot of returns
-st.markdown("#### Return Scatter Plot")
-
-st.caption(f"""
-**Each dot:** One day's returns for both assets.
-**X-axis:** {config.ASSETS.get(asset_a, asset_a)} daily return (%).
-**Y-axis:** {config.ASSETS.get(asset_b, asset_b)} daily return (%).
-**Interpretation:** Dots along a diagonal line = correlated. Scattered randomly = uncorrelated. Opposite diagonal = negatively correlated.
-""")
+st.markdown(
+    "#### Return Scatter Plot",
+    help=f"Each dot = one day's returns for both assets. X-axis: {config.ASSETS.get(asset_a, asset_a)} return. Y-axis: {config.ASSETS.get(asset_b, asset_b)} return. Diagonal pattern = correlated. Random scatter = uncorrelated."
+)
 
 returns_a = pair_analysis["returns_a"].dropna()
 returns_b = pair_analysis["returns_b"].dropna()
@@ -950,7 +931,7 @@ fig_scatter.update_layout(
     yaxis_title=f"{config.ASSETS.get(asset_b, asset_b)} Return (%)"
 )
 
-st.plotly_chart(fig_scatter, width='stretch')
+st.plotly_chart(fig_scatter, use_container_width=True)
 
 # =============================================================================
 # FOOTER

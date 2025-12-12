@@ -7,7 +7,8 @@ This page provides comprehensive analysis of a single asset including:
 - Z-score visualization with configurable thresholds
 - Volatility analysis
 - Detailed anomaly table with export functionality
-- Gemini AI assistant integrated in sidebar for contextual help
+- Gemini AI assistant integrated in sidebar
+- Chart capture buttons to send any chart to Gemini
 
 For minute data: simple week selectbox for performance optimization.
 
@@ -33,6 +34,7 @@ from components import (
     footer,
     title,
     render_gemini_sidebar,
+    render_chart_with_capture,
 )
 
 # Import analysis modules
@@ -74,7 +76,7 @@ def reset_zoom():
 
 
 # =============================================================================
-# DATA LOADING FUNCTIONS (defined early for sidebar context)
+# DATA LOADING FUNCTIONS
 # =============================================================================
 
 @st.cache_data
@@ -100,12 +102,10 @@ def get_available_weeks(asset: str, granularity: str):
     """Get list of available weeks for minute data."""
     df = load_single_asset(asset, granularity)
     
-    # Get unique dates
     dates = pd.Series(df.index.date).unique()
     min_date = min(dates)
     max_date = max(dates)
     
-    # Generate week ranges
     weeks = []
     current_start = min_date
     
@@ -132,9 +132,7 @@ def get_available_weeks(asset: str, granularity: str):
 with st.sidebar:
     st.header("⚙️ Controls")
     
-    # -------------------------------------------------------------------------
     # Asset Selection
-    # -------------------------------------------------------------------------
     asset_options = {key: get_asset_display_name(key) for key in config.ASSETS.keys()}
     selected_asset = st.selectbox(
         "Select Asset",
@@ -143,9 +141,7 @@ with st.sidebar:
         format_func=lambda x: asset_options[x]
     )
     
-    # -------------------------------------------------------------------------
     # Granularity Selection
-    # -------------------------------------------------------------------------
     granularity_options = {
         key: get_granularity_display_name(key) 
         for key in config.GRANULARITY_PATHS.keys()
@@ -160,9 +156,7 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # -------------------------------------------------------------------------
     # Z-Score Threshold
-    # -------------------------------------------------------------------------
     zscore_threshold = st.slider(
         "Z-Score Threshold",
         min_value=1.0,
@@ -172,19 +166,13 @@ with st.sidebar:
         help="Values beyond this threshold are classified as anomalies"
     )
     
-    # -------------------------------------------------------------------------
     # Show Anomalies Toggle
-    # -------------------------------------------------------------------------
     show_anomalies = st.checkbox("Highlight Anomalies", value=True)
     
     st.markdown("---")
     
-    # -------------------------------------------------------------------------
-    # Gemini AI Assistant
-    # -------------------------------------------------------------------------
-    # Build context for Gemini (will be updated after data loads)
-    # For now, provide basic context that's available
-    initial_context = {
+    # Gemini context (basic - will be enriched after data loads)
+    page_context = {
         "page": "Single Asset Analysis",
         "asset": selected_asset,
         "asset_display": get_asset_display_name(selected_asset),
@@ -192,21 +180,14 @@ with st.sidebar:
         "zscore_threshold": zscore_threshold
     }
     
-    # Note: current_figure will be None initially, updated after charts are created
-    # We store figure in session state to pass to sidebar
-    current_fig = st.session_state.get("main_figure", None)
-    
-    render_gemini_sidebar(
-        page_context=initial_context,
-        current_figure=current_fig
-    )
+    # Render Gemini chat in sidebar
+    render_gemini_sidebar(page_context)
 
 
 # =============================================================================
 # DATE RANGE LOADING
 # =============================================================================
 
-# Get date range for the selected asset and granularity
 try:
     min_date_ts, max_date_ts = get_date_bounds(selected_asset, selected_granularity)
     min_date = min_date_ts.date()
@@ -233,25 +214,21 @@ except Exception as e:
 st.markdown("### 📅 Date Range")
 
 if selected_granularity == "minute":
-    # Simple week selectbox for minute data (performance optimization)
     st.toast("Minute data is limited to **one week at a time** for performance.", icon="⚠️")
     
-    # Get available weeks
     weeks = get_available_weeks(selected_asset, selected_granularity)
     
-    # Create selectbox
     selected_week = st.selectbox(
         "Select Week",
         options=range(len(weeks)),
         format_func=lambda i: weeks[i]["label"],
-        index=len(weeks) - 1  # Default to most recent week
+        index=len(weeks) - 1
     )
     
     start_date = weeks[selected_week]["start"]
     end_date = weeks[selected_week]["end"]
 
 else:
-    # Standard date selection for hourly/daily
     col1, col2 = st.columns(2)
     
     with col1:
@@ -269,7 +246,6 @@ else:
             max_value=max_date
         )
 
-# Validate date range
 if start_date > end_date:
     st.error("Start date must be before end date.")
     st.stop()
@@ -288,7 +264,6 @@ try:
         st.warning("No data available for selected date range.")
         st.stop()
     
-    # Run anomaly detection
     with st.spinner("Detecting anomalies..."):
         df_processed = process_anomalies(df.copy(), zscore_threshold)
 
@@ -298,35 +273,34 @@ except Exception as e:
 
 
 # =============================================================================
-# ANOMALY NAVIGATION (Jump to anomaly feature)
+# PREPARE DATA FOR VISUALIZATION
 # =============================================================================
 
-# Get anomaly table for navigation
+# Get anomaly table and counts
 anomaly_df = get_anomaly_table(df_processed)
-
-# Count anomalies for context
 anomaly_counts = count_anomalies(df_processed)
 
 # Store selected date range for zoom
 if "selected_zoom_range" not in st.session_state:
     st.session_state.selected_zoom_range = None
 
-
-# =============================================================================
-# MAIN CHARTS
-# =============================================================================
-
-st.markdown("---")
-st.markdown("### 📈 Price, Volume & Volatility")
-
-# Get column names from config
+# Get column names
 open_col = config.COLUMNS["open"]
 high_col = config.COLUMNS["high"]
 low_col = config.COLUMNS["low"]
 close_col = config.COLUMNS["close"]
 volume_col = config.COLUMNS["volume"]
 
-# Create subplot figure with candlestick, volume, and volatility
+
+# =============================================================================
+# MAIN CHART: PRICE, VOLUME & VOLATILITY
+# =============================================================================
+
+st.markdown("---")
+st.markdown("### 📈 Price, Volume & Volatility")
+st.caption("💡 Clicca **📷 Gemini** per inviare questo grafico all'assistente AI")
+
+# Create subplot figure
 fig_main = make_subplots(
     rows=3, cols=1,
     shared_xaxes=True,
@@ -335,9 +309,7 @@ fig_main = make_subplots(
     subplot_titles=("Price (OHLC)", "Volume", "Volatility")
 )
 
-# -------------------------------------------------------------------------
-# Row 1: Candlestick Chart
-# -------------------------------------------------------------------------
+# Row 1: Candlestick
 fig_main.add_trace(
     go.Candlestick(
         x=df_processed.index,
@@ -352,7 +324,7 @@ fig_main.add_trace(
     row=1, col=1
 )
 
-# Add anomaly markers on price chart
+# Price anomaly markers
 if show_anomalies:
     anomaly_mask = df_processed["anomaly_price"]
     if anomaly_mask.any():
@@ -380,9 +352,7 @@ if show_anomalies:
             row=1, col=1
         )
 
-# -------------------------------------------------------------------------
-# Row 2: Volume Bar Chart
-# -------------------------------------------------------------------------
+# Row 2: Volume
 volume_colors = [
     config.COLOR_ANOMALY if a else config.COLOR_NORMAL 
     for a in df_processed["anomaly_volume"]
@@ -394,24 +364,15 @@ fig_main.add_trace(
         y=df_processed[volume_col],
         name="Volume",
         marker_color=volume_colors,
-        hovertemplate=(
-            "Time: %{x}<br>"
-            "Volume: %{y:,.0f}<br>"
-            "<extra></extra>"
-        )
+        hovertemplate="Time: %{x}<br>Volume: %{y:,.0f}<extra></extra>"
     ),
     row=2, col=1
 )
 
-# -------------------------------------------------------------------------
-# Row 3: Volatility Chart (High-Low Range)
-# -------------------------------------------------------------------------
+# Row 3: Volatility
 df_processed["volatility_range"] = df_processed[high_col] - df_processed[low_col]
-
-# Volatility anomaly mask
 vol_anomaly_mask = df_processed["anomaly_volatility"] if show_anomalies else pd.Series([False] * len(df_processed))
 
-# Main volatility line
 fig_main.add_trace(
     go.Scatter(
         x=df_processed.index,
@@ -421,16 +382,11 @@ fig_main.add_trace(
         line=dict(color=config.COLOR_NORMAL, width=2),
         fill='tozeroy',
         fillcolor='rgba(100, 149, 237, 0.2)',
-        hovertemplate=(
-            "Time: %{x}<br>"
-            "Range: $%{y:.2f}<br>"
-            "<extra></extra>"
-        )
+        hovertemplate="Time: %{x}<br>Range: $%{y:.2f}<extra></extra>"
     ),
     row=3, col=1
 )
 
-# Volatility anomaly points
 if show_anomalies and vol_anomaly_mask.any():
     fig_main.add_trace(
         go.Scatter(
@@ -443,19 +399,12 @@ if show_anomalies and vol_anomaly_mask.any():
                 color=config.COLOR_ANOMALY,
                 symbol="diamond"
             ),
-            hovertemplate=(
-                "<b>⚠️ VOLATILITY ANOMALY</b><br>"
-                "Time: %{x}<br>"
-                "Range: $%{y:.2f}<br>"
-                "<extra></extra>"
-            )
+            hovertemplate="<b>⚠️ VOLATILITY ANOMALY</b><br>Time: %{x}<br>Range: $%{y:.2f}<extra></extra>"
         ),
         row=3, col=1
     )
 
-# -------------------------------------------------------------------------
-# Apply Zoom (if anomaly selected)
-# -------------------------------------------------------------------------
+# Apply zoom if set
 if st.session_state.selected_zoom_range is not None:
     fig_main.update_xaxes(
         range=[
@@ -464,11 +413,9 @@ if st.session_state.selected_zoom_range is not None:
         ]
     )
 
-# -------------------------------------------------------------------------
-# Layout Configuration
-# -------------------------------------------------------------------------
+# Layout
 fig_main.update_layout(
-    height=750,
+    height=700,
     showlegend=True,
     legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1),
     xaxis_rangeslider_visible=False,
@@ -480,11 +427,8 @@ fig_main.update_yaxes(title_text="Volume", row=2, col=1)
 fig_main.update_yaxes(title_text="Range ($)", row=3, col=1)
 fig_main.update_xaxes(title_text="Date", row=3, col=1)
 
-# Store figure in session state for Gemini capture
-st.session_state.main_figure = fig_main
-
-# Render the chart
-st.plotly_chart(fig_main, use_container_width=True)
+# Render chart with capture button
+render_chart_with_capture(fig_main, "Price/Volume/Volatility Chart", "main_chart")
 
 
 # =============================================================================
@@ -504,23 +448,20 @@ if len(anomaly_df) > 0:
                 st.session_state.anomaly_selector = None
             st.rerun()
 
-    # Create options for selectbox
     anomaly_options = [
         f"#{i}: {row['type']} - {str(row['timestamp'])[:19]} (Z={row['zscore']:.2f})"
         for i, row in anomaly_df.iterrows()
     ]
 
     def on_anomaly_select():
-        """Callback when anomaly is selected from dropdown."""
+        """Callback when anomaly is selected."""
         selected = st.session_state.anomaly_selector
         
         if selected != "Select an anomaly...":
-            # Extract index from selection (format: "#1: ...")
             anomaly_idx = int(selected.split(":")[0].replace("#", ""))
             anomaly_row = anomaly_df.loc[anomaly_idx]
             anomaly_timestamp = anomaly_row["timestamp"]
             
-            # Calculate zoom range (show +/- 5% of data around anomaly)
             total_range = (df_processed.index.max() - df_processed.index.min())
             zoom_delta = total_range * 0.05
             
@@ -529,7 +470,7 @@ if len(anomaly_df) > 0:
                 "end": anomaly_timestamp + zoom_delta
             }
     
-    selected_anomaly = st.selectbox(
+    st.selectbox(
         "Navigate to anomaly",
         options=anomaly_options,
         help="Select an anomaly to zoom the chart to that time period",
@@ -545,27 +486,14 @@ if len(anomaly_df) > 0:
 
 st.markdown("---")
 st.markdown("### 📊 Z-Score Analysis")
+st.caption("💡 Ogni grafico ha il suo pulsante **📷 Gemini** per l'invio all'assistente")
 
-# Get threshold lines for visualization
+# Get threshold lines
 thresholds = get_threshold_lines(zscore_threshold)
 
 
-def create_zscore_chart(
-    data: pd.Series, 
-    chart_title: str, 
-    anomaly_mask: pd.Series
-) -> go.Figure:
-    """
-    Create a Z-score chart with threshold lines and anomaly markers.
-    
-    Args:
-        data: Series containing Z-score values
-        chart_title: Title for the chart
-        anomaly_mask: Boolean series indicating anomaly points
-    
-    Returns:
-        Plotly Figure object
-    """
+def create_zscore_chart(data: pd.Series, chart_title: str, anomaly_mask: pd.Series) -> go.Figure:
+    """Create a Z-score chart with threshold lines and anomaly markers."""
     fig = go.Figure()
     
     # Main Z-score line
@@ -589,77 +517,26 @@ def create_zscore_chart(
                 y=anomaly_data.values,
                 mode="markers",
                 name="Anomaly",
-                marker=dict(
-                    size=config.MARKER_SIZE_ANOMALY,
-                    color=config.COLOR_ANOMALY
-                ),
-                hovertemplate=(
-                    "<b>⚠️ ANOMALY</b><br>"
-                    "Time: %{x}<br>"
-                    "Z-Score: %{y:.2f}σ<br>"
-                    "<extra></extra>"
-                )
+                marker=dict(size=config.MARKER_SIZE_ANOMALY, color=config.COLOR_ANOMALY),
+                hovertemplate="<b>⚠️ ANOMALY</b><br>Time: %{x}<br>Z-Score: %{y:.2f}σ<extra></extra>"
             )
         )
     
     # Threshold lines
-    fig.add_hline(
-        y=thresholds["anomaly_upper"], 
-        line_dash="dash", 
-        line_color=config.COLOR_ANOMALY, 
-        annotation_text=f"+{zscore_threshold}σ"
-    )
-    fig.add_hline(
-        y=thresholds["anomaly_lower"], 
-        line_dash="dash", 
-        line_color=config.COLOR_ANOMALY, 
-        annotation_text=f"-{zscore_threshold}σ"
-    )
-    fig.add_hline(
-        y=thresholds["warning_upper"], 
-        line_dash="dot", 
-        line_color=config.COLOR_WARNING, 
-        annotation_text=f"+{config.ZSCORE_WARNING_THRESHOLD}σ"
-    )
-    fig.add_hline(
-        y=thresholds["warning_lower"], 
-        line_dash="dot", 
-        line_color=config.COLOR_WARNING, 
-        annotation_text=f"-{config.ZSCORE_WARNING_THRESHOLD}σ"
-    )
+    fig.add_hline(y=thresholds["anomaly_upper"], line_dash="dash", line_color=config.COLOR_ANOMALY, annotation_text=f"+{zscore_threshold}σ")
+    fig.add_hline(y=thresholds["anomaly_lower"], line_dash="dash", line_color=config.COLOR_ANOMALY, annotation_text=f"-{zscore_threshold}σ")
+    fig.add_hline(y=thresholds["warning_upper"], line_dash="dot", line_color=config.COLOR_WARNING, annotation_text=f"+{config.ZSCORE_WARNING_THRESHOLD}σ")
+    fig.add_hline(y=thresholds["warning_lower"], line_dash="dot", line_color=config.COLOR_WARNING, annotation_text=f"-{config.ZSCORE_WARNING_THRESHOLD}σ")
     fig.add_hline(y=0, line_color="gray", line_width=0.5)
     
-    # Colored regions for visual reference
-    fig.add_hrect(
-        y0=thresholds["warning_lower"], 
-        y1=thresholds["warning_upper"], 
-        fillcolor="green", 
-        opacity=0.1, 
-        line_width=0
-    )
-    fig.add_hrect(
-        y0=thresholds["warning_upper"], 
-        y1=thresholds["anomaly_upper"], 
-        fillcolor="yellow", 
-        opacity=0.1, 
-        line_width=0
-    )
-    fig.add_hrect(
-        y0=thresholds["anomaly_lower"], 
-        y1=thresholds["warning_lower"], 
-        fillcolor="yellow", 
-        opacity=0.1, 
-        line_width=0
-    )
+    # Colored regions
+    fig.add_hrect(y0=thresholds["warning_lower"], y1=thresholds["warning_upper"], fillcolor="green", opacity=0.1, line_width=0)
+    fig.add_hrect(y0=thresholds["warning_upper"], y1=thresholds["anomaly_upper"], fillcolor="yellow", opacity=0.1, line_width=0)
+    fig.add_hrect(y0=thresholds["anomaly_lower"], y1=thresholds["warning_lower"], fillcolor="yellow", opacity=0.1, line_width=0)
     
-    # Apply zoom if anomaly selected
+    # Apply zoom if set
     if st.session_state.selected_zoom_range is not None:
-        fig.update_xaxes(
-            range=[
-                st.session_state.selected_zoom_range["start"], 
-                st.session_state.selected_zoom_range["end"]
-            ]
-        )
+        fig.update_xaxes(range=[st.session_state.selected_zoom_range["start"], st.session_state.selected_zoom_range["end"]])
     
     # Layout
     fig.update_layout(
@@ -675,8 +552,8 @@ def create_zscore_chart(
     return fig
 
 
-# Create tabs for different Z-score charts
-tab1, tab2, tab3 = st.tabs(["Price Z-Score", "Volume Z-Score", "Volatility Z-Score"])
+# Create tabs for Z-score charts
+tab1, tab2, tab3 = st.tabs(["📈 Price Z-Score", "📊 Volume Z-Score", "📉 Volatility Z-Score"])
 
 with tab1:
     fig_zscore_price = create_zscore_chart(
@@ -684,7 +561,7 @@ with tab1:
         "Price Z-Score",
         df_processed["anomaly_price"]
     )
-    st.plotly_chart(fig_zscore_price, use_container_width=True)
+    render_chart_with_capture(fig_zscore_price, "Price Z-Score Chart", "zscore_price")
 
 with tab2:
     fig_zscore_volume = create_zscore_chart(
@@ -692,7 +569,7 @@ with tab2:
         "Volume Z-Score",
         df_processed["anomaly_volume"]
     )
-    st.plotly_chart(fig_zscore_volume, use_container_width=True)
+    render_chart_with_capture(fig_zscore_volume, "Volume Z-Score Chart", "zscore_volume")
 
 with tab3:
     fig_zscore_volatility = create_zscore_chart(
@@ -700,7 +577,7 @@ with tab3:
         "Volatility Z-Score",
         df_processed["anomaly_volatility"]
     )
-    st.plotly_chart(fig_zscore_volatility, use_container_width=True)
+    render_chart_with_capture(fig_zscore_volatility, "Volatility Z-Score Chart", "zscore_volatility")
 
 
 # =============================================================================
@@ -710,7 +587,6 @@ with tab3:
 st.markdown("---")
 st.markdown("### 📋 Summary")
 
-# Display metrics in columns
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
@@ -731,33 +607,24 @@ st.markdown("---")
 st.markdown("### 🔍 Anomaly Details")
 
 if len(anomaly_df) > 0:
-    # Format the table for display
+    # Format table
     anomaly_df_display = anomaly_df.copy()
     anomaly_df_display["timestamp"] = anomaly_df_display["timestamp"].astype(str)
-    anomaly_df_display["value"] = anomaly_df_display["value"].apply(
-        lambda x: f"{x:,.2f}" if pd.notna(x) else "-"
-    )
-    anomaly_df_display["zscore"] = anomaly_df_display["zscore"].apply(
-        lambda x: f"{x:.2f}σ" if pd.notna(x) else "-"
-    )
-    anomaly_df_display["pct_change"] = anomaly_df_display["pct_change"].apply(
-        lambda x: f"{x:+.2f}%" if pd.notna(x) else "-"
-    )
-    
-    # Rename columns for display
+    anomaly_df_display["value"] = anomaly_df_display["value"].apply(lambda x: f"{x:,.2f}" if pd.notna(x) else "-")
+    anomaly_df_display["zscore"] = anomaly_df_display["zscore"].apply(lambda x: f"{x:.2f}σ" if pd.notna(x) else "-")
+    anomaly_df_display["pct_change"] = anomaly_df_display["pct_change"].apply(lambda x: f"{x:+.2f}%" if pd.notna(x) else "-")
     anomaly_df_display.columns = ["Timestamp", "Type", "Value", "Z-Score", "% Change"]
     
-    # Filter by type
+    # Filter
     anomaly_types = ["All"] + list(anomaly_df["type"].unique())
     selected_type = st.selectbox("Filter by Type", anomaly_types)
     
     if selected_type != "All":
         anomaly_df_display = anomaly_df_display[anomaly_df_display["Type"] == selected_type]
     
-    # Display table
     st.dataframe(anomaly_df_display, use_container_width=True, height=400)
     
-    # Download button
+    # Download
     csv = anomaly_df.to_csv(index=True, index_label="ID")
     st.download_button(
         label="📥 Download Anomalies CSV",
@@ -765,32 +632,8 @@ if len(anomaly_df) > 0:
         file_name=f"anomalies_{selected_asset}_{selected_granularity}.csv",
         mime="text/csv"
     )
-
 else:
-    st.info(f"""
-    No anomalies detected with the current threshold (Z-Score ≥ {zscore_threshold}).
-    
-    Try lowering the threshold in the sidebar to detect more subtle anomalies.
-    """)
-
-
-# =============================================================================
-# UPDATE GEMINI CONTEXT WITH FULL DATA
-# =============================================================================
-
-# Now that we have all the data, update the context in session state
-# This will be available on the next rerun for Gemini
-st.session_state.gemini_page_context = build_single_asset_context(
-    asset=selected_asset,
-    asset_display=get_asset_display_name(selected_asset),
-    granularity=selected_granularity,
-    start_date=str(start_date),
-    end_date=str(end_date),
-    zscore_threshold=zscore_threshold,
-    anomalies_price=anomaly_counts["price"],
-    anomalies_volume=anomaly_counts["volume"],
-    anomalies_volatility=anomaly_counts["volatility"]
-)
+    st.info(f"No anomalies detected with the current threshold (Z-Score ≥ {zscore_threshold}).")
 
 
 # =============================================================================

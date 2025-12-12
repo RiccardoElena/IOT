@@ -1,15 +1,60 @@
+# =============================================================================
 # IoT Financial Data Analytics - Dependencies
+# =============================================================================
 # Install with: pip install -r requirements.txt
+# =============================================================================
 
-# Web framework
+
+# -----------------------------------------------------------------------------
+# Web Framework
+# -----------------------------------------------------------------------------
+# Streamlit: Main framework for building the interactive web dashboard
+# Version 1.31+ required for latest session_state features and chat components
 streamlit>=1.31.0
 
-# Data visualization
+
+# -----------------------------------------------------------------------------
+# Data Visualization
+# -----------------------------------------------------------------------------
+# Plotly: Interactive charts (candlestick, line, bar, heatmaps, etc.)
+# Used for all financial charts in the dashboard
 plotly>=5.18.0
 
-# Data manipulation
+
+# -----------------------------------------------------------------------------
+# Data Manipulation
+# -----------------------------------------------------------------------------
+# Pandas: DataFrames for handling time-series financial data
+# Version 2.2+ for improved performance and datetime handling
 pandas>=2.2.0
+
+# NumPy: Numerical operations for statistical calculations
+# Used in anomaly detection, correlation, and pattern recognition
 numpy>=1.26.3
 
-# Scientific computing (for pattern detection)
+
+# -----------------------------------------------------------------------------
+# Scientific Computing
+# -----------------------------------------------------------------------------
+# SciPy: Scientific computing library
+# Used for signal processing in pattern detection (find_peaks function)
 scipy>=1.12.0
+
+
+# -----------------------------------------------------------------------------
+# LLM Integration (Gemini Assistant)
+# -----------------------------------------------------------------------------
+# Google Generative AI: Official SDK for Gemini API
+# Used for the AI assistant chat feature
+# Free tier: 15 requests/min, 1M tokens/min, 1500 requests/day
+google-generativeai>=0.5.0
+
+# Kaleido: Static image export for Plotly figures
+# Required to capture charts as PNG for sending to Gemini vision
+# Works offline, no external dependencies
+kaleido>=0.2.1
+
+# Python-dotenv: Load environment variables from .env file
+# Convenient for local development (API keys, config)
+# Optional: can also use system environment variables directly
+python-dotenv>=1.0.0

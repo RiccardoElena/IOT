@@ -8,6 +8,9 @@ This page provides comprehensive analysis of a single asset including:
 - Anomaly detection and highlighting
 - Detailed anomaly table
 - For minute data: simple week selectbox for easy navigation
+- Gemini AI assistant for contextual help and chart analysis
+
+Run with: streamlit run app.py (then navigate to this page)
 """
 
 import os
@@ -24,11 +27,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import config
 
+# Import UI components
 from components import (
     footer,
     title,
+    render_gemini_chat,
 )
 
+# Import analysis modules
 from src.anomaly_detection import (
     count_anomalies,
     detect_anomalies,
@@ -42,6 +48,9 @@ from src.data_loader import (
     get_granularity_display_name,
     load_single_asset,
 )
+
+# Import Gemini context builder
+from src.gemini_assistant import build_single_asset_context
 
 
 # =============================================================================
@@ -58,9 +67,10 @@ title("Single Asset Analysis", "Explore individual asset data with anomaly detec
 
 
 def reset_zoom():
-  st.session_state.selected_zoom_range = None
+    """Reset zoom state when asset or granularity changes."""
+    st.session_state.selected_zoom_range = None
+    st.session_state.anomaly_selector = None
 
-  st.session_state.anomaly_selector = None
 
 # =============================================================================
 # SIDEBAR - CONTROLS AND INFO
@@ -747,16 +757,16 @@ fig_main.update_yaxes(title_text="Volume", row=2, col=1)
 fig_main.update_yaxes(title_text="Range ($)", row=3, col=1)
 fig_main.update_xaxes(title_text="Date", row=3, col=1)
 
-st.plotly_chart(fig_main, width='stretch')
+st.plotly_chart(fig_main, use_container_width=True)
 
 if len(anomaly_df) > 0:
     col1, col2 = st.columns([4, 1])
 
     
     with col1:
-      st.markdown("#### Jump to Anomaly")  
+        st.markdown("#### Jump to Anomaly")  
     with col2:
-        if st.button("🔄 Reset Zoom", width='stretch'):
+        if st.button("🔄 Reset Zoom", use_container_width=True):
             st.session_state.selected_zoom_range = None
             if "anomaly_selector" in st.session_state:
                 st.session_state.anomaly_selector = None
@@ -928,7 +938,7 @@ with tab1:
         "Price Z-Score",
         df_processed["anomaly_price"]
     )
-    st.plotly_chart(fig_zscore_price, width='stretch')
+    st.plotly_chart(fig_zscore_price, use_container_width=True)
 
 with tab2:
     fig_zscore_volume = create_zscore_chart(
@@ -936,7 +946,7 @@ with tab2:
         "Volume Z-Score",
         df_processed["anomaly_volume"]
     )
-    st.plotly_chart(fig_zscore_volume, width='stretch')
+    st.plotly_chart(fig_zscore_volume, use_container_width=True)
 
 with tab3:
     fig_zscore_volatility = create_zscore_chart(
@@ -944,7 +954,7 @@ with tab3:
         "Volatility Z-Score",
         df_processed["anomaly_volatility"]
     )
-    st.plotly_chart(fig_zscore_volatility, width='stretch')
+    st.plotly_chart(fig_zscore_volatility, use_container_width=True)
 
 # =============================================================================
 # SUMMARY METRICS
@@ -1000,7 +1010,7 @@ if len(anomaly_df) > 0:
         anomaly_df_display = anomaly_df_display[anomaly_df_display["Type"] == selected_type]
     
     # Display table with 1-based index
-    st.dataframe(anomaly_df_display, width='stretch', height=400)
+    st.dataframe(anomaly_df_display, use_container_width=True, height=400)
     
     # Download button
     csv = anomaly_df.to_csv(index=True, index_label="ID")
@@ -1042,5 +1052,35 @@ else:
     Try lowering the threshold in the sidebar to detect more subtle anomalies.
     """)
 
+
+# =============================================================================
+# GEMINI AI ASSISTANT
+# =============================================================================
+
+# Build page context for Gemini
+# This provides the AI with relevant information about the current view
+page_context = build_single_asset_context(
+    asset=selected_asset,
+    asset_display=get_asset_display_name(selected_asset),
+    granularity=selected_granularity,
+    start_date=str(start_date),
+    end_date=str(end_date),
+    zscore_threshold=zscore_threshold,
+    anomalies_price=anomaly_counts["price"],
+    anomalies_volume=anomaly_counts["volume"],
+    anomalies_volatility=anomaly_counts["volatility"]
+)
+
+# Render the Gemini chat interface
+# Pass the main figure for chart capture functionality
+render_gemini_chat(
+    page_context=page_context,
+    current_figure=fig_main
+)
+
+
+# =============================================================================
+# FOOTER
+# =============================================================================
 
 footer("Single Asset Analysis")

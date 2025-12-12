@@ -3,12 +3,13 @@ Single Asset Analysis Page
 
 This page provides comprehensive analysis of a single asset including:
 - Interactive candlestick chart with zoom-to-anomaly feature
-- Volume chart
-- Z-score visualization with thresholds
-- Anomaly detection and highlighting
-- Detailed anomaly table
-- For minute data: simple week selectbox for easy navigation
-- Gemini AI assistant for contextual help and chart analysis
+- Volume chart with anomaly highlighting
+- Z-score visualization with configurable thresholds
+- Volatility analysis
+- Detailed anomaly table with export functionality
+- Gemini AI assistant integrated in sidebar for contextual help
+
+For minute data: simple week selectbox for performance optimization.
 
 Run with: streamlit run app.py (then navigate to this page)
 """
@@ -31,7 +32,7 @@ import config
 from components import (
     footer,
     title,
-    render_gemini_chat,
+    render_gemini_sidebar,
 )
 
 # Import analysis modules
@@ -73,389 +74,12 @@ def reset_zoom():
 
 
 # =============================================================================
-# SIDEBAR - CONTROLS AND INFO
-# =============================================================================
-
-with st.sidebar:
-    st.header("Controls")
-    
-    # Asset selection
-    asset_options = {key: get_asset_display_name(key) for key in config.ASSETS.keys()}
-    selected_asset = st.selectbox(
-        "Select Asset",
-        options=list(asset_options.keys()),
-        on_change=reset_zoom,
-        format_func=lambda x: asset_options[x]
-    )
-    
-    # Granularity selection (minute, hourly, daily)
-    granularity_options = {
-        key: get_granularity_display_name(key) 
-        for key in config.GRANULARITY_PATHS.keys()
-    }
-    selected_granularity = st.selectbox(
-        "Select Granularity",
-        options=list(granularity_options.keys()),
-        on_change=reset_zoom,
-        format_func=lambda x: granularity_options[x],
-        index=2  # Default to daily
-    )
-    
-    st.markdown("---")
-    
-    # Z-score threshold slider
-    zscore_threshold = st.slider(
-        "Z-Score Threshold",
-        min_value=1.0,
-        max_value=5.0,
-        value=config.ZSCORE_ANOMALY_THRESHOLD,
-        step=0.5,
-        help="Values beyond this threshold are classified as anomalies"
-    )
-    
-    # Show anomalies toggle
-    show_anomalies = st.checkbox("Highlight Anomalies", value=True)
-    
-    st.markdown("---")
-    
-    # INFO BOX: About the Asset
-    with st.expander(" Asset Information", expanded=False):
-        asset_info = {
-            "sp500": """
-            **S&P 500 Index**
-            
-            The Standard & Poor's 500 is a stock market index tracking 
-            500 large companies listed on US stock exchanges.
-            
-            **Key characteristics:**
-            - Benchmark for US equity market
-            - Market-cap weighted
-            - Represents ~80% of US market cap
-            - Sectors: Tech, Healthcare, Finance, etc.
-            
-            **Trading hours:** 9:30 AM - 4:00 PM ET (weekdays)
-            
-            **What moves it:**
-            - Corporate earnings
-            - Economic indicators (GDP, employment)
-            - Federal Reserve policy
-            - Geopolitical events
-            """,
-            "gold": """
-            **Gold (XAU)**
-            
-            Gold is a precious metal traded globally as a commodity 
-            and store of value.
-            
-            **Key characteristics:**
-            - Safe-haven asset
-            - Hedge against inflation
-            - Negatively correlated with USD
-            - Central bank reserves
-            
-            **Trading:** 24 hours, 5 days/week (global markets)
-            
-            **What moves it:**
-            - Interest rates (inverse relationship)
-            - US Dollar strength
-            - Inflation expectations
-            - Geopolitical uncertainty
-            - Central bank buying/selling
-            """,
-            "oil": """
-            **Crude Oil (WTI)**
-            
-            West Texas Intermediate is a grade of crude oil used 
-            as a benchmark in oil pricing.
-            
-            **Key characteristics:**
-            - Primary energy commodity
-            - Highly volatile
-            - Influenced by OPEC decisions
-            - Economic growth indicator
-            
-            **Trading:** Nearly 24 hours (NYMEX, ICE)
-            
-            **What moves it:**
-            - Supply/demand balance
-            - OPEC+ production decisions
-            - Geopolitical tensions (Middle East)
-            - Inventory reports (EIA weekly)
-            - Economic growth outlook
-            """,
-            "usd": """
-            **US Dollar Index (DXY)**
-            
-            Measures the value of USD against a basket of 6 major 
-            currencies (EUR, JPY, GBP, CAD, SEK, CHF).
-            
-            **Key characteristics:**
-            - Global reserve currency
-            - Safe-haven in crises
-            - Euro has largest weight (~58%)
-            
-            **Trading:** 24 hours, 5 days/week (forex markets)
-            
-            **What moves it:**
-            - Federal Reserve policy
-            - Interest rate differentials
-            - US economic data
-            - Risk sentiment (flight to safety)
-            - Trade balance
-            """,
-            "btc": """
-            **Bitcoin (BTC)**
-            
-            The first and largest cryptocurrency by market cap.
-            
-            **Key characteristics:**
-            - Decentralized digital currency
-            - Fixed supply (21 million max)
-            - Highly volatile
-            - 24/7 trading
-            
-            **Trading:** 24/7/365 (crypto exchanges)
-            
-            **What moves it:**
-            - Regulatory news
-            - Institutional adoption
-            - Halving events (every ~4 years)
-            - Macro risk sentiment
-            - Technical factors (on-chain metrics)
-            """
-        }
-        st.markdown(asset_info.get(selected_asset, "Information not available."))
-    
-    # INFO BOX: About Z-Score
-    with st.expander(" Understanding Z-Score", expanded=False):
-        st.markdown(f"""
-        **What is Z-Score?**
-        
-        Z-Score measures how many standard deviations a value is 
-        from the mean (average).
-        
-        **Formula:**
-        ```
-        Z = (x - μ) / σ
-        ```
-        Where:
-        - x = observed value
-        - μ (mu) = mean
-        - σ (sigma) = standard deviation
-        
-        ---
-        
-        **Interpretation:**
-        
-        | Z-Score | Meaning | Probability |
-        |---------|---------|-------------|
-        | 0 | At the mean | 50% |
-        | ±1σ | Slightly unusual | ~32% outside |
-        | ±2σ | Unusual | ~5% outside |
-        | ±3σ | Very unusual | ~0.3% outside |
-        | ±4σ | Extremely rare | ~0.006% outside |
-        
-        ---
-        
-        **Current threshold: ±{zscore_threshold}σ**
-        
-        Values beyond this threshold are marked as anomalies.
-        
-        ---
-        
-        **Why use Z-Score for anomalies?**
-        
-        1. **Scale-independent:** Works for any price level
-        2. **Statistically grounded:** Based on probability
-        3. **Adaptable:** Threshold can be tuned
-        4. **Interpretable:** Easy to understand severity
-        """)
-    
-    # INFO BOX: About Candlesticks
-    with st.expander("Reading Candlestick Charts", expanded=False):
-        st.markdown("""
-        **Candlestick Anatomy:**
-        
-        ```
-            │  ← Upper shadow (wick)
-           ─┴─
-           │ │ ← Body
-           │ │
-           ─┬─
-            │  ← Lower shadow (wick)
-        ```
-        
-        **Components:**
-        - **Body:** Distance between Open and Close
-        - **Upper shadow:** High minus the higher of Open/Close
-        - **Lower shadow:** Lower of Open/Close minus Low
-        
-        ---
-        
-        **Colors:**
-        - 🟢 **Green/Bullish:** Close > Open (price went up)
-        - 🔴 **Red/Bearish:** Close < Open (price went down)
-        
-        ---
-        
-        **What they show:**
-        
-        | Part | Information |
-        |------|-------------|
-        | Body size | Strength of move |
-        | Shadow length | Price rejection |
-        | Color | Direction |
-        
-        ---
-        
-        **Quick patterns:**
-        - **Long body:** Strong conviction
-        - **Long upper shadow:** Sellers pushed back
-        - **Long lower shadow:** Buyers stepped in
-        - **Small body:** Indecision
-        """)
-    
-    # INFO BOX: About Volume
-    with st.expander(" Understanding Volume", expanded=False):
-        st.markdown("""
-        **What is Volume?**
-        
-        Volume represents the number of shares/contracts/units 
-        traded during a time period.
-        
-        ---
-        
-        **Why Volume Matters:**
-        
-        Volume confirms price moves:
-        
-        | Price | Volume | Interpretation |
-        |-------|--------|----------------|
-        | ↑ Up | High | Strong bullish move |
-        | ↑ Up | Low | Weak rally, may reverse |
-        | ↓ Down | High | Strong selling pressure |
-        | ↓ Down | Low | Weak decline, may bounce |
-        
-        ---
-        
-        **Volume anomalies indicate:**
-        
-        - **Spike in volume:** Something significant happened
-          - News event
-          - Large institutional trade
-          - Options expiration
-          - Market manipulation
-        
-        - **Very low volume:** 
-          - Holiday trading
-          - Pre-market/after-hours
-          - Low interest in asset
-        
-        ---
-        
-        **Volume + Price analysis:**
-        
-        The best signals come when volume confirms price:
-        - Breakout + high volume = likely to continue
-        - Breakout + low volume = likely false breakout
-        """)
-    
-    # INFO BOX: About Volatility
-    with st.expander(" Understanding Volatility", expanded=False):
-        st.markdown("""
-        **What is Volatility?**
-        
-        Volatility measures how much prices fluctuate over time.
-        In this analysis, we use the **daily range** (High - Low) 
-        as a proxy for volatility.
-        
-        ---
-        
-        **Types of Volatility:**
-        
-        | Type | Description |
-        |------|-------------|
-        | Historical | Past price fluctuations |
-        | Implied | Market's expectation (from options) |
-        | Realized | Actual observed volatility |
-        
-        ---
-        
-        **High volatility indicates:**
-        
-        - Uncertainty in the market
-        - Potential trading opportunities
-        - Higher risk
-        - News or events driving price
-        
-        **Low volatility indicates:**
-        
-        - Market consensus
-        - Potential calm before storm
-        - Lower trading opportunities
-        - Possible breakout coming
-        
-        ---
-        
-        **Volatility clustering:**
-        
-        High volatility tends to follow high volatility, 
-        and low follows low. This is why:
-        - Risk management is crucial during volatile periods
-        - Position sizing should adapt to volatility
-        """)
-    
-    # INFO BOX: Data Granularity
-    with st.expander("⏱️ Data Granularity", expanded=False):
-        st.markdown("""
-        **What is granularity?**
-        
-        Granularity refers to the time interval between 
-        consecutive data points.
-        
-        ---
-        
-        **Available granularities:**
-        
-        | Level | Interval | Use Case |
-        |-------|----------|----------|
-        | **Minute** | 1 min | Intraday trading, scalping |
-        | **Hourly** | 1 hour | Swing trading, day trading |
-        | **Daily** | 1 day | Position trading, investing |
-        
-        ---
-        
-        **Trade-offs:**
-        
-        **Higher frequency (minute):**
-        - ✅ More detail
-        - ✅ Better for short-term
-        - ❌ More noise
-        - ❌ More data to process
-        
-        **Lower frequency (daily):**
-        - ✅ Clearer trends
-        - ✅ Less noise
-        - ❌ Miss intraday moves
-        - ❌ Delayed signals
-        
-        ---
-        
-        **For anomaly detection:**
-        
-        - **Minute:** Detects flash crashes, HFT anomalies
-        - **Hourly:** Detects intraday unusual moves
-        - **Daily:** Detects significant daily moves
-        """)
-
-
-# =============================================================================
-# DATA LOADING
+# DATA LOADING FUNCTIONS (defined early for sidebar context)
 # =============================================================================
 
 @st.cache_data
 def load_data_full(asset: str, granularity: str):
-    """Load full dataset."""
+    """Load full dataset for an asset."""
     return load_single_asset(asset, granularity)
 
 
@@ -501,6 +125,87 @@ def get_available_weeks(asset: str, granularity: str):
     return weeks
 
 
+# =============================================================================
+# SIDEBAR - CONTROLS AND GEMINI ASSISTANT
+# =============================================================================
+
+with st.sidebar:
+    st.header("⚙️ Controls")
+    
+    # -------------------------------------------------------------------------
+    # Asset Selection
+    # -------------------------------------------------------------------------
+    asset_options = {key: get_asset_display_name(key) for key in config.ASSETS.keys()}
+    selected_asset = st.selectbox(
+        "Select Asset",
+        options=list(asset_options.keys()),
+        on_change=reset_zoom,
+        format_func=lambda x: asset_options[x]
+    )
+    
+    # -------------------------------------------------------------------------
+    # Granularity Selection
+    # -------------------------------------------------------------------------
+    granularity_options = {
+        key: get_granularity_display_name(key) 
+        for key in config.GRANULARITY_PATHS.keys()
+    }
+    selected_granularity = st.selectbox(
+        "Select Granularity",
+        options=list(granularity_options.keys()),
+        on_change=reset_zoom,
+        format_func=lambda x: granularity_options[x],
+        index=2  # Default to daily
+    )
+    
+    st.markdown("---")
+    
+    # -------------------------------------------------------------------------
+    # Z-Score Threshold
+    # -------------------------------------------------------------------------
+    zscore_threshold = st.slider(
+        "Z-Score Threshold",
+        min_value=1.0,
+        max_value=5.0,
+        value=config.ZSCORE_ANOMALY_THRESHOLD,
+        step=0.5,
+        help="Values beyond this threshold are classified as anomalies"
+    )
+    
+    # -------------------------------------------------------------------------
+    # Show Anomalies Toggle
+    # -------------------------------------------------------------------------
+    show_anomalies = st.checkbox("Highlight Anomalies", value=True)
+    
+    st.markdown("---")
+    
+    # -------------------------------------------------------------------------
+    # Gemini AI Assistant
+    # -------------------------------------------------------------------------
+    # Build context for Gemini (will be updated after data loads)
+    # For now, provide basic context that's available
+    initial_context = {
+        "page": "Single Asset Analysis",
+        "asset": selected_asset,
+        "asset_display": get_asset_display_name(selected_asset),
+        "granularity": selected_granularity,
+        "zscore_threshold": zscore_threshold
+    }
+    
+    # Note: current_figure will be None initially, updated after charts are created
+    # We store figure in session state to pass to sidebar
+    current_fig = st.session_state.get("main_figure", None)
+    
+    render_gemini_sidebar(
+        page_context=initial_context,
+        current_figure=current_fig
+    )
+
+
+# =============================================================================
+# DATE RANGE LOADING
+# =============================================================================
+
 # Get date range for the selected asset and granularity
 try:
     min_date_ts, max_date_ts = get_date_bounds(selected_asset, selected_granularity)
@@ -528,7 +233,7 @@ except Exception as e:
 st.markdown("### 📅 Date Range")
 
 if selected_granularity == "minute":
-    # Simple week selectbox for minute data
+    # Simple week selectbox for minute data (performance optimization)
     st.toast("Minute data is limited to **one week at a time** for performance.", icon="⚠️")
     
     # Get available weeks
@@ -591,6 +296,7 @@ except Exception as e:
     st.error(f"Error processing data: {e}")
     st.stop()
 
+
 # =============================================================================
 # ANOMALY NAVIGATION (Jump to anomaly feature)
 # =============================================================================
@@ -598,18 +304,22 @@ except Exception as e:
 # Get anomaly table for navigation
 anomaly_df = get_anomaly_table(df_processed)
 
+# Count anomalies for context
+anomaly_counts = count_anomalies(df_processed)
+
 # Store selected date range for zoom
 if "selected_zoom_range" not in st.session_state:
     st.session_state.selected_zoom_range = None
+
 
 # =============================================================================
 # MAIN CHARTS
 # =============================================================================
 
 st.markdown("---")
-st.markdown("###  Price, Volume & Volatility")
+st.markdown("### 📈 Price, Volume & Volatility")
 
-# Get column names
+# Get column names from config
 open_col = config.COLUMNS["open"]
 high_col = config.COLUMNS["high"]
 low_col = config.COLUMNS["low"]
@@ -625,7 +335,9 @@ fig_main = make_subplots(
     subplot_titles=("Price (OHLC)", "Volume", "Volatility")
 )
 
-# Candlestick chart
+# -------------------------------------------------------------------------
+# Row 1: Candlestick Chart
+# -------------------------------------------------------------------------
 fig_main.add_trace(
     go.Candlestick(
         x=df_processed.index,
@@ -668,7 +380,9 @@ if show_anomalies:
             row=1, col=1
         )
 
-# Volume bar chart
+# -------------------------------------------------------------------------
+# Row 2: Volume Bar Chart
+# -------------------------------------------------------------------------
 volume_colors = [
     config.COLOR_ANOMALY if a else config.COLOR_NORMAL 
     for a in df_processed["anomaly_volume"]
@@ -689,13 +403,15 @@ fig_main.add_trace(
     row=2, col=1
 )
 
-# Volatility chart (High-Low range) - LINE CHART
+# -------------------------------------------------------------------------
+# Row 3: Volatility Chart (High-Low Range)
+# -------------------------------------------------------------------------
 df_processed["volatility_range"] = df_processed[high_col] - df_processed[low_col]
 
-# Separate normal and anomaly data for different styling
-anomaly_mask = df_processed["anomaly_volatility"] if show_anomalies else pd.Series([False] * len(df_processed))
+# Volatility anomaly mask
+vol_anomaly_mask = df_processed["anomaly_volatility"] if show_anomalies else pd.Series([False] * len(df_processed))
 
-# Normal volatility line
+# Main volatility line
 fig_main.add_trace(
     go.Scatter(
         x=df_processed.index,
@@ -714,12 +430,12 @@ fig_main.add_trace(
     row=3, col=1
 )
 
-# Anomaly points
-if show_anomalies and anomaly_mask.any():
+# Volatility anomaly points
+if show_anomalies and vol_anomaly_mask.any():
     fig_main.add_trace(
         go.Scatter(
-            x=df_processed[anomaly_mask].index,
-            y=df_processed[anomaly_mask]["volatility_range"],
+            x=df_processed[vol_anomaly_mask].index,
+            y=df_processed[vol_anomaly_mask]["volatility_range"],
             mode="markers",
             name="Volatility Anomaly",
             marker=dict(
@@ -737,13 +453,20 @@ if show_anomalies and anomaly_mask.any():
         row=3, col=1
     )
 
-# Apply zoom if anomaly selected
+# -------------------------------------------------------------------------
+# Apply Zoom (if anomaly selected)
+# -------------------------------------------------------------------------
 if st.session_state.selected_zoom_range is not None:
     fig_main.update_xaxes(
-        range=[st.session_state.selected_zoom_range["start"], st.session_state.selected_zoom_range["end"]]
+        range=[
+            st.session_state.selected_zoom_range["start"], 
+            st.session_state.selected_zoom_range["end"]
+        ]
     )
 
-# Update layout
+# -------------------------------------------------------------------------
+# Layout Configuration
+# -------------------------------------------------------------------------
 fig_main.update_layout(
     height=750,
     showlegend=True,
@@ -757,14 +480,23 @@ fig_main.update_yaxes(title_text="Volume", row=2, col=1)
 fig_main.update_yaxes(title_text="Range ($)", row=3, col=1)
 fig_main.update_xaxes(title_text="Date", row=3, col=1)
 
+# Store figure in session state for Gemini capture
+st.session_state.main_figure = fig_main
+
+# Render the chart
 st.plotly_chart(fig_main, use_container_width=True)
+
+
+# =============================================================================
+# JUMP TO ANOMALY FEATURE
+# =============================================================================
 
 if len(anomaly_df) > 0:
     col1, col2 = st.columns([4, 1])
-
     
     with col1:
-        st.markdown("#### Jump to Anomaly")  
+        st.markdown("#### 🎯 Jump to Anomaly")
+    
     with col2:
         if st.button("🔄 Reset Zoom", use_container_width=True):
             st.session_state.selected_zoom_range = None
@@ -779,7 +511,7 @@ if len(anomaly_df) > 0:
     ]
 
     def on_anomaly_select():
-        """Callback when anomaly is selected"""
+        """Callback when anomaly is selected from dropdown."""
         selected = st.session_state.anomaly_selector
         
         if selected != "Select an anomaly...":
@@ -808,22 +540,32 @@ if len(anomaly_df) > 0:
 
 
 # =============================================================================
-# Z-SCORE CHARTS
+# Z-SCORE ANALYSIS CHARTS
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### Z-Score Analysis")
+st.markdown("### 📊 Z-Score Analysis")
 
-# Get threshold lines
+# Get threshold lines for visualization
 thresholds = get_threshold_lines(zscore_threshold)
 
 
 def create_zscore_chart(
     data: pd.Series, 
-    title: str, 
+    chart_title: str, 
     anomaly_mask: pd.Series
 ) -> go.Figure:
-    """Create a Z-score chart with threshold lines."""
+    """
+    Create a Z-score chart with threshold lines and anomaly markers.
+    
+    Args:
+        data: Series containing Z-score values
+        chart_title: Title for the chart
+        anomaly_mask: Boolean series indicating anomaly points
+    
+    Returns:
+        Plotly Figure object
+    """
     fig = go.Figure()
     
     # Main Z-score line
@@ -887,7 +629,7 @@ def create_zscore_chart(
     )
     fig.add_hline(y=0, line_color="gray", line_width=0.5)
     
-    # Add colored regions
+    # Colored regions for visual reference
     fig.add_hrect(
         y0=thresholds["warning_lower"], 
         y1=thresholds["warning_upper"], 
@@ -913,11 +655,15 @@ def create_zscore_chart(
     # Apply zoom if anomaly selected
     if st.session_state.selected_zoom_range is not None:
         fig.update_xaxes(
-            range=[st.session_state.selected_zoom_range["start"], st.session_state.selected_zoom_range["end"]]
+            range=[
+                st.session_state.selected_zoom_range["start"], 
+                st.session_state.selected_zoom_range["end"]
+            ]
         )
     
+    # Layout
     fig.update_layout(
-        title=title,
+        title=chart_title,
         height=350,
         showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
@@ -956,17 +702,15 @@ with tab3:
     )
     st.plotly_chart(fig_zscore_volatility, use_container_width=True)
 
+
 # =============================================================================
 # SUMMARY METRICS
 # =============================================================================
 
 st.markdown("---")
-st.markdown("###  Summary")
+st.markdown("### 📋 Summary")
 
-# Count anomalies
-anomaly_counts = count_anomalies(df_processed)
-
-# Display metrics
+# Display metrics in columns
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
@@ -978,12 +722,13 @@ with col3:
 with col4:
     st.metric("Volatility Anomalies", anomaly_counts["volatility"])
 
+
 # =============================================================================
-# ANOMALY TABLE
+# ANOMALY DETAILS TABLE
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### Anomaly Details")
+st.markdown("### 🔍 Anomaly Details")
 
 if len(anomaly_df) > 0:
     # Format the table for display
@@ -1002,14 +747,14 @@ if len(anomaly_df) > 0:
     # Rename columns for display
     anomaly_df_display.columns = ["Timestamp", "Type", "Value", "Z-Score", "% Change"]
     
-    # Add filtering
+    # Filter by type
     anomaly_types = ["All"] + list(anomaly_df["type"].unique())
     selected_type = st.selectbox("Filter by Type", anomaly_types)
     
     if selected_type != "All":
         anomaly_df_display = anomaly_df_display[anomaly_df_display["Type"] == selected_type]
     
-    # Display table with 1-based index
+    # Display table
     st.dataframe(anomaly_df_display, use_container_width=True, height=400)
     
     # Download button
@@ -1020,30 +765,6 @@ if len(anomaly_df) > 0:
         file_name=f"anomalies_{selected_asset}_{selected_granularity}.csv",
         mime="text/csv"
     )
-    
-    # Anomaly detail expander
-    with st.expander("ℹ️ Understanding the Anomalies"):
-        st.markdown(f"""
-        **What makes these values anomalies?**
-        
-        Each anomaly has a Z-Score with absolute value ≥ {zscore_threshold}, meaning 
-        the value is at least {zscore_threshold} standard deviations from the mean.
-        
-        **Probability interpretation:**
-        - Z=3σ: ~0.3% chance (1 in 370)
-        - Z=4σ: ~0.006% chance (1 in 15,787)
-        - Z=5σ: ~0.00006% chance (1 in 1.7 million)
-        
-        **Anomaly types:**
-        - **Price**: Unusual price movement
-        - **Volume**: Unusual trading activity
-        - **Volatility**: Unusual price range (high-low)
-        
-        **% Change column:**
-        - Shows percentage change from previous period
-        - Only displayed for Price anomalies
-        - Positive = price increased, Negative = price decreased
-        """)
 
 else:
     st.info(f"""
@@ -1054,12 +775,12 @@ else:
 
 
 # =============================================================================
-# GEMINI AI ASSISTANT
+# UPDATE GEMINI CONTEXT WITH FULL DATA
 # =============================================================================
 
-# Build page context for Gemini
-# This provides the AI with relevant information about the current view
-page_context = build_single_asset_context(
+# Now that we have all the data, update the context in session state
+# This will be available on the next rerun for Gemini
+st.session_state.gemini_page_context = build_single_asset_context(
     asset=selected_asset,
     asset_display=get_asset_display_name(selected_asset),
     granularity=selected_granularity,
@@ -1069,13 +790,6 @@ page_context = build_single_asset_context(
     anomalies_price=anomaly_counts["price"],
     anomalies_volume=anomaly_counts["volume"],
     anomalies_volatility=anomaly_counts["volatility"]
-)
-
-# Render the Gemini chat interface
-# Pass the main figure for chart capture functionality
-render_gemini_chat(
-    page_context=page_context,
-    current_figure=fig_main
 )
 
 

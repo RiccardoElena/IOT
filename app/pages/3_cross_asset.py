@@ -2,11 +2,15 @@
 Cross-Asset Analysis Page
 
 This page provides multi-asset analysis including:
-- Correlation matrix heatmap
-- Rolling correlation over time
-- Normalized price comparison
-- Simultaneous anomaly detection
-- Systemic event identification
+- Correlation matrix heatmap showing relationships between all assets
+- Rolling correlation over time to detect regime changes
+- Normalized price comparison for relative performance
+- Simultaneous anomaly detection across multiple assets
+- Systemic event identification when multiple assets move together
+
+Gemini AI assistant provides contextual help on correlation interpretation.
+
+Run with: streamlit run app.py (then navigate to this page)
 """
 
 import os
@@ -23,9 +27,15 @@ from plotly.subplots import make_subplots
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import config
+
+# Import UI components including Gemini sidebar
 from components import (
     footer, 
-    title)
+    title,
+    render_gemini_sidebar,
+)
+
+# Import analysis modules
 from src.anomaly_detection import detect_anomalies
 from src.cross_asset import (
     analyze_asset_pair,
@@ -41,6 +51,9 @@ from src.data_loader import (
     get_asset_display_name,
     load_all_assets,
 )
+
+# Import Gemini context builder for this page
+from src.gemini_assistant import build_cross_asset_context
 
 
 # =============================================================================
@@ -133,285 +146,6 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # INFO BOX: Pearson Correlation
-    with st.expander("Pearson Correlation", expanded=False):
-        st.markdown("""
-        **What is Pearson Correlation?**
-        
-        A measure of linear relationship between two variables, 
-        ranging from -1 to +1.
-        
-        **Formula:**
-        ```
-        r = Σ[(x - x̄)(y - ȳ)] / √[Σ(x - x̄)² × Σ(y - ȳ)²]
-        ```
-        
-        ---
-        
-        **Interpretation:**
-        
-        | Value | Strength | Direction |
-        |-------|----------|-----------|
-        | +1.0 | Perfect | Positive |
-        | +0.7 to +1.0 | Strong | Positive |
-        | +0.4 to +0.7 | Moderate | Positive |
-        | +0.2 to +0.4 | Weak | Positive |
-        | -0.2 to +0.2 | None/Very weak | - |
-        | -0.4 to -0.2 | Weak | Negative |
-        | -0.7 to -0.4 | Moderate | Negative |
-        | -1.0 to -0.7 | Strong | Negative |
-        | -1.0 | Perfect | Negative |
-        
-        ---
-        
-        **Why use returns, not prices?**
-        
-        Prices are non-stationary (trending over time), which 
-        violates correlation assumptions. Returns are:
-        - Mean-reverting
-        - Stationary
-        - Comparable across assets
-        
-        ---
-        
-        **Limitations:**
-        
-        - Only measures **linear** relationships
-        - Sensitive to outliers
-        - Doesn't imply causation
-        - Can change over time (use rolling)
-        """)
-    
-    # INFO BOX: Rolling Correlation
-    with st.expander("Rolling Correlation", expanded=False):
-        st.markdown(f"""
-        **Why use rolling correlation?**
-        
-        Correlations between assets are **not constant**. They 
-        change due to:
-        
-        - Market regimes (bull vs. bear)
-        - Economic cycles
-        - Policy changes
-        - Crisis events
-        
-        ---
-        
-        **How it works:**
-        
-        Current window: **{correlation_window} days**
-        
-        ```
-        Day 1-30:   Calculate correlation
-        Day 2-31:   Calculate correlation
-        Day 3-32:   Calculate correlation
-        ...and so on
-        ```
-        
-        ---
-        
-        **Use cases:**
-        
-        1. **Hedge effectiveness:** Is your hedge still working?
-        
-        2. **Regime detection:** Correlations spike in crises
-        
-        3. **Diversification check:** Are assets becoming more 
-           correlated?
-        
-        4. **Pair trading:** Entry when correlation deviates, 
-           exit when it reverts
-        
-        ---
-        
-        **Correlation breakdown:**
-        
-        When correlations deviate significantly (>2σ) from their 
-        historical mean, it signals a potential regime change or 
-        market stress.
-        """)
-    
-    # INFO BOX: Systemic Events
-    with st.expander("Systemic Events", expanded=False):
-        st.markdown(f"""
-        **What are systemic events?**
-        
-        When **{systemic_threshold}+ assets** show anomalies 
-        simultaneously, it suggests a market-wide event rather 
-        than asset-specific news.
-        
-        ---
-        
-        **Examples of systemic events:**
-        
-        | Event | Affected Assets |
-        |-------|-----------------|
-        | 2008 Financial Crisis | All |
-        | COVID-19 Crash (Mar 2020) | All |
-        | Fed Rate Decision | S&P, Gold, USD |
-        | Oil Price War (2020) | Oil, S&P |
-        | Crypto Crash | BTC, Risk assets |
-        
-        ---
-        
-        **Why track systemic events?**
-        
-        1. **Risk management:** Portfolio-wide exposure
-        
-        2. **Diversification failure:** In crises, correlations 
-           go to 1 (everything falls together)
-        
-        3. **Opportunity detection:** Extreme events can create 
-           buying opportunities
-        
-        4. **Narrative construction:** What caused this?
-        
-        ---
-        
-        **Threshold selection:**
-        
-        - **2 assets:** Common, may be coincidental
-        - **3 assets:** Noteworthy, investigate
-        - **4+ assets:** Likely systemic, significant event
-        
-        Current threshold: **{systemic_threshold} assets**
-        """)
-    
-    # INFO BOX: Safe Haven vs Risk Assets
-    with st.expander("Safe Haven Assets", expanded=False):
-        st.markdown("""
-        **What are safe haven assets?**
-        
-        Assets that maintain or increase value during market stress.
-        
-        ---
-        
-        **Traditional safe havens:**
-        
-        | Asset | Behavior in Crisis |
-        |-------|-------------------|
-        | **Gold** | Rises (flight to safety) |
-        | **USD** | Rises (global reserve) |
-        | **CHF** | Rises (Swiss stability) |
-        | **JPY** | Rises (carry trade unwind) |
-        | **US Treasuries** | Rises (risk-off) |
-        
-        ---
-        
-        **Risk assets:**
-        
-        | Asset | Behavior in Crisis |
-        |-------|-------------------|
-        | **Stocks (S&P 500)** | Falls |
-        | **Oil** | Falls (demand drop) |
-        | **Bitcoin** | Falls (speculative) |
-        | **EM Currencies** | Falls |
-        | **High Yield Bonds** | Falls |
-        
-        ---
-        
-        **Typical correlations:**
-        
-        - **Gold ↔ USD:** Negative (gold priced in USD)
-        - **Gold ↔ S&P 500:** Low/Negative
-        - **Oil ↔ S&P 500:** Positive (economic activity)
-        - **BTC ↔ Risk assets:** Variable
-        
-        ---
-        
-        **Correlation in crises:**
-        
-        During severe crises, "all correlations go to 1" as 
-        investors sell everything for cash (even safe havens 
-        initially, like Gold in March 2020).
-        """)
-    
-    # INFO BOX: Price Normalization
-    with st.expander("Price Normalization", expanded=False):
-        st.markdown("""
-        **Why normalize prices?**
-        
-        Different assets have vastly different price scales:
-        - S&P 500: ~5,000
-        - Gold: ~2,000
-        - Oil: ~80
-        - Bitcoin: ~60,000
-        
-        Normalizing to base 100 allows visual comparison of 
-        **relative performance**.
-        
-        ---
-        
-        **How it works:**
-        
-        ```
-        Normalized_Price = (Current_Price / Start_Price) × 100
-        ```
-        
-        Example:
-        - Start: Gold = $1,800, S&P = 4,500
-        - After: Gold = $1,980 (+10%), S&P = 4,950 (+10%)
-        - Normalized: Both = 110
-        
-        ---
-        
-        **Use cases:**
-        
-        1. **Performance comparison:** Which asset performed best?
-        
-        2. **Trend identification:** Divergence/convergence
-        
-        3. **Relative strength:** Who's leading/lagging?
-        
-        4. **Rebalancing signals:** Asset allocation drift
-        """)
-    
-    # INFO BOX: Hedging
-    with st.expander("Hedging with Correlation", expanded=False):
-        st.markdown("""
-        **What is hedging?**
-        
-        Reducing portfolio risk by holding negatively correlated 
-        assets.
-        
-        ---
-        
-        **Effective hedges:**
-        
-        | Long Position | Hedge | Typical Correlation |
-        |---------------|-------|---------------------|
-        | S&P 500 | Gold | -0.1 to -0.3 |
-        | S&P 500 | USD | -0.2 to -0.4 |
-        | Oil | USD | -0.3 to -0.5 |
-        | Stocks | Bonds | -0.2 to -0.5 |
-        
-        ---
-        
-        **Hedge ratio:**
-        
-        To fully hedge, you need:
-        ```
-        Hedge_Ratio = -Correlation × (σ_asset / σ_hedge)
-        ```
-        
-        ---
-        
-        **Hedge effectiveness over time:**
-        
-        Use rolling correlation to monitor:
-        - Hedge still working?
-        - Correlation changed?
-        - Need to adjust ratio?
-        
-        ---
-        
-        **Warning:**
-        
-        Hedges can fail during extreme events when correlations 
-        break down. Always stress-test your hedges.
-        """)
-
-
 # =============================================================================
 # DATA LOADING
 # =============================================================================
@@ -512,6 +246,56 @@ except Exception as e:
 
 
 # =============================================================================
+# GEMINI CONTEXT AND SIDEBAR
+# =============================================================================
+
+# Calculate correlation matrix for Gemini context (same calc as later chart)
+returns_matrix_pre = price_matrix.pct_change().dropna()
+corr_matrix_pre = returns_matrix_pre.corr()
+
+# Format correlation matrix as dictionary for context
+correlation_dict = {}
+assets_list = list(corr_matrix_pre.columns)
+for i, asset_a in enumerate(assets_list):
+    for j, asset_b in enumerate(assets_list):
+        if i < j:  # Only upper triangle (avoid duplicates)
+            pair_key = f"{config.ASSETS.get(asset_a, asset_a)} vs {config.ASSETS.get(asset_b, asset_b)}"
+            correlation_dict[pair_key] = round(corr_matrix_pre.loc[asset_a, asset_b], 3)
+
+# Calculate systemic events summary
+anomaly_df = pd.DataFrame(anomaly_flags).fillna(False).astype(bool)
+anomaly_counts_pre = anomaly_df.sum(axis=1)
+systemic_mask_pre = anomaly_counts_pre >= systemic_threshold
+total_systemic = int(systemic_mask_pre.sum())
+days_with_anomaly = int((anomaly_counts_pre > 0).sum())
+
+# Systemic event details
+systemic_events = {
+    "total_days_analyzed": len(anomaly_counts_pre),
+    "days_with_any_anomaly": days_with_anomaly,
+    "systemic_events_count": total_systemic,
+    "systemic_threshold": systemic_threshold
+}
+
+# Build Gemini context with cross-asset data
+gemini_context = build_cross_asset_context(
+    start_date=str(start_date),
+    end_date=str(end_date),
+    correlation_matrix=correlation_dict,
+    systemic_events=systemic_events,
+    pair_name=None,  # Will be updated if user selects a pair
+    pair_analysis=None
+)
+
+# Render Gemini sidebar with cross-asset context
+with st.sidebar:
+    render_gemini_sidebar(
+        page_context=gemini_context,
+        page_type="cross_asset"
+    )
+
+
+# =============================================================================
 # CORRELATION MATRIX
 # =============================================================================
 
@@ -562,7 +346,7 @@ fig_heatmap.update_layout(
 st.plotly_chart(fig_heatmap, width='stretch')
 
 # Typical correlations info
-with st.expander("ℹ️  Typical Expected Correlations"):
+with st.expander("ℹ️  Typical Expected Correlations"):
     typical = get_typical_correlations()
     for pair, description in typical.items():
         if pair[0] in all_data and pair[1] in all_data:

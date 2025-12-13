@@ -3,53 +3,37 @@ Reusable UI Components for IoT Financial Data Analytics.
 
 This module provides standardized UI components used across all pages:
 - Page header and footer
-- Gemini AI chat sidebar (compact version integrated in left sidebar)
-- Chart rendering with capture-to-Gemini functionality
-- Auto-scrolling chat messages
-- CSS and JavaScript injection for custom behavior
+- Gemini AI chat sidebar with data attachment checkboxes
+- Auto-scrolling chat messages (scrolls to question, not to end)
 
 Key Features:
-- render_gemini_sidebar(): Compact chat in sidebar
-- render_chart_with_capture(): Chart with "Send to Gemini" button
-- Auto-scroll to latest message in chat
+- render_gemini_sidebar(): Compact chat in sidebar with data selection
+- Data-driven context (no image capture - more reliable for LLM analysis)
+- Smart scroll: shows user question + start of response
 
 Usage:
-    from components import (
-        title, 
-        footer, 
-        render_gemini_sidebar,
-        render_chart_with_capture
-    )
+    from components import title, footer, render_gemini_sidebar
     
-    # Render chart with capture button
-    render_chart_with_capture(fig, "Price Chart", "main_chart")
-    
-    # In sidebar
     with st.sidebar:
-        render_gemini_sidebar(page_context)
+        render_gemini_sidebar(
+            page_context=context_dict,
+            page_type="single_asset"
+        )
 """
 
 import streamlit as st
-from typing import Any, Dict, Optional
-import streamlit.components.v1 as components
+from typing import Any, Dict, List
 
 # Import Gemini assistant module
 try:
     from src.gemini_assistant import (
         get_assistant,
-        capture_plotly_figure,
         get_gemini_status,
         is_gemini_available,
     )
     GEMINI_MODULE_AVAILABLE = True
 except ImportError:
     GEMINI_MODULE_AVAILABLE = False
-
-# Import config for styling constants
-try:
-    import config
-except ImportError:
-    config = None
 
 
 # =============================================================================
@@ -84,100 +68,118 @@ def footer(page_title: str) -> None:
 
 
 # =============================================================================
-# CHART WITH CAPTURE FUNCTIONALITY
+# DATA ATTACHMENT CONFIGURATION
 # =============================================================================
 
-def render_chart_with_capture(
-    fig,
-    chart_name: str,
-    chart_key: str,
-    height: Optional[int] = None
-) -> None:
-    """
-    Render a Plotly chart with a "Send to Gemini" capture button.
-    
-    Displays the chart with a button that captures it as an image
-    and stores it in session state for sending to Gemini.
-    
-    Args:
-        fig: Plotly figure object to render
-        chart_name: Human-readable name for the chart (e.g., "Price Chart")
-        chart_key: Unique key for the button widget
-        height: Optional height override for the chart
-    
-    Example:
-        >>> fig = go.Figure(...)
-        >>> render_chart_with_capture(fig, "Main Price Chart", "main_chart")
-    """
-    # Initialize session state for pending image if needed
-    if "gemini_pending_image" not in st.session_state:
-        st.session_state.gemini_pending_image = None
-    if "gemini_pending_image_name" not in st.session_state:
-        st.session_state.gemini_pending_image_name = None
-    
-    # Create columns: chart takes most space, button on the right
-    col_chart, col_btn = st.columns([20, 3])
-    
-    with col_chart:
-        st.plotly_chart(fig, use_container_width=True, key=f"chart_{chart_key}")
-    
-    with col_btn:
-        # Add some vertical spacing to align with chart
-        st.markdown("<div style='height: 30px'></div>", unsafe_allow_html=True)
-        
-        # Check if this chart is already captured
-        is_captured = (
-            st.session_state.gemini_pending_image is not None and
-            st.session_state.gemini_pending_image_name == chart_name
-        )
-        
-        if is_captured:
-            # Show "captured" state with option to remove
-            if st.button(
-                "✅ Allegato",
-                key=f"capture_done_{chart_key}",
-                help="Clicca per rimuovere",
-                use_container_width=True,
-                type="primary"
-            ):
-                st.session_state.gemini_pending_image = None
-                st.session_state.gemini_pending_image_name = None
-                st.rerun()
-        else:
-            # Show capture button
-            if st.button(
-                "📷 Gemini",
-                key=f"capture_{chart_key}",
-                help=f"Invia '{chart_name}' a Gemini",
-                use_container_width=True,
-                type="secondary"
-            ):
-                if GEMINI_MODULE_AVAILABLE:
-                    with st.spinner("Cattura..."):
-                        image_b64 = capture_plotly_figure(fig)
-                        if image_b64:
-                            st.session_state.gemini_pending_image = image_b64
-                            st.session_state.gemini_pending_image_name = chart_name
-                            st.toast(f"📷 {chart_name} catturato!", icon="✅")
-                            st.rerun()
-                        else:
-                            st.toast("Errore nella cattura", icon="❌")
-                else:
-                    st.toast("Modulo Gemini non disponibile", icon="❌")
+# Available data options for each page type
+DATA_OPTIONS = {
+    "single_asset": {
+        "price_stats": {
+            "label": "📈 Statistiche prezzo",
+            "description": "Min, max, current, % change",
+            "default": True
+        },
+        "anomalies": {
+            "label": "⚠️ Lista anomalie",
+            "description": "All detected anomalies with details",
+            "default": True
+        },
+        "zscore_details": {
+            "label": "📊 Dettagli Z-Score",
+            "description": "Current Z-scores for price, volume, volatility",
+            "default": False
+        },
+        "volume_stats": {
+            "label": "📊 Statistiche volume",
+            "description": "Volume statistics and trends",
+            "default": False
+        },
+        "volatility_stats": {
+            "label": "📉 Statistiche volatilità",
+            "description": "Volatility range and patterns",
+            "default": False
+        }
+    },
+    "realtime": {
+        "simulation_progress": {
+            "label": "⏱️ Progresso simulazione",
+            "description": "Current progress and points streamed",
+            "default": True
+        },
+        "realtime_anomalies": {
+            "label": "⚠️ Anomalie rilevate",
+            "description": "Anomalies found during simulation",
+            "default": True
+        },
+        "window_stats": {
+            "label": "📊 Statistiche finestra",
+            "description": "Rolling window statistics",
+            "default": False
+        }
+    },
+    "cross_asset": {
+        "correlation_matrix": {
+            "label": "🔗 Matrice correlazioni",
+            "description": "Full correlation matrix between assets",
+            "default": True
+        },
+        "systemic_events": {
+            "label": "🌐 Eventi sistemici",
+            "description": "Days with multiple asset anomalies",
+            "default": True
+        },
+        "pair_analysis": {
+            "label": "📊 Analisi coppia",
+            "description": "Selected pair detailed statistics",
+            "default": False
+        }
+    },
+    "patterns": {
+        "candlestick_patterns": {
+            "label": "🕯️ Pattern candlestick",
+            "description": "Doji, Hammer, Engulfing patterns",
+            "default": True
+        },
+        "chart_patterns": {
+            "label": "📈 Pattern grafici",
+            "description": "Double Top/Bottom, H&S, Cup & Handle",
+            "default": True
+        },
+        "pattern_distribution": {
+            "label": "📊 Distribuzione",
+            "description": "Pattern frequency and timeline",
+            "default": False
+        }
+    }
+}
 
-
-def clear_captured_chart() -> None:
-    """
-    Clear any captured chart from session state.
-    
-    Call this after the image has been sent to Gemini.
-    """
-    st.session_state.gemini_pending_image = None
-    st.session_state.gemini_pending_image_name = None
+# Page-specific suggested questions for welcome message
+PAGE_SUGGESTIONS = {
+    "single_asset": [
+        "Cosa significa Z-score?",
+        "Spiega le anomalie rilevate",
+        "Analizza il trend del prezzo"
+    ],
+    "realtime": [
+        "Come funziona la sliding window?",
+        "Spiega le anomalie in tempo reale",
+        "Cosa indica la simulazione?"
+    ],
+    "cross_asset": [
+        "Spiega la matrice di correlazione",
+        "Cosa sono gli eventi sistemici?",
+        "Analizza le relazioni tra asset"
+    ],
+    "patterns": [
+        "Cosa indica un pattern Doji?",
+        "Spiega i pattern rilevati",
+        "Qual è il segnale più importante?"
+    ]
+}
 
 
 # =============================================================================
-# GEMINI SIDEBAR CHAT COMPONENTS
+# SESSION STATE MANAGEMENT
 # =============================================================================
 
 def init_gemini_session_state() -> None:
@@ -186,67 +188,117 @@ def init_gemini_session_state() -> None:
     
     Creates:
     - gemini_history: List of chat messages
-    - gemini_pending_image: Base64 image waiting to be sent
-    - gemini_pending_image_name: Name of the captured chart
     - gemini_input_key: Counter for input widget key regeneration
+    - gemini_selected_data: Dict of selected data options per page
     """
     if "gemini_history" not in st.session_state:
         st.session_state.gemini_history = []
     
-    if "gemini_pending_image" not in st.session_state:
-        st.session_state.gemini_pending_image = None
-    
-    if "gemini_pending_image_name" not in st.session_state:
-        st.session_state.gemini_pending_image_name = None
-    
     if "gemini_input_key" not in st.session_state:
         st.session_state.gemini_input_key = 0
-
-
-def inject_auto_scroll_js() -> None:
-    """
-    Inject JavaScript to auto-scroll chat to the latest message.
     
-    This script finds the chat container and scrolls it to the bottom
-    after each Streamlit rerun.
+    if "gemini_selected_data" not in st.session_state:
+        st.session_state.gemini_selected_data = {}
+
+
+def get_selected_data_options(page_type: str) -> Dict[str, bool]:
     """
-    js_code = """
+    Get the currently selected data options for a page type.
+    
+    Args:
+        page_type: One of 'single_asset', 'realtime', 'cross_asset', 'patterns'
+    
+    Returns:
+        Dictionary mapping option keys to boolean (selected/not selected)
+    """
+    init_gemini_session_state()
+    
+    if page_type not in st.session_state.gemini_selected_data:
+        # Initialize with defaults
+        if page_type in DATA_OPTIONS:
+            st.session_state.gemini_selected_data[page_type] = {
+                key: opt["default"] 
+                for key, opt in DATA_OPTIONS[page_type].items()
+            }
+        else:
+            st.session_state.gemini_selected_data[page_type] = {}
+    
+    return st.session_state.gemini_selected_data[page_type]
+
+
+# =============================================================================
+# AUTO-SCROLL JAVASCRIPT
+# =============================================================================
+
+def inject_auto_scroll_js(anchor_id: str) -> None:
+    """
+    Execute surgical scroll using components.html (iframe)
+    to manipulate parent DOM (window.parent).
+    Uses getBoundingClientRect for precise positioning.
+    Keeps scrolling to override Streamlit's auto-scroll.
+    """
+    import streamlit.components.v1 as components
+    
+    js_code = f"""
     <script>
-        // Function to scroll chat container to bottom
-        function scrollChatToBottom() {
-            // Find all containers with data-testid containing 'stVerticalBlock'
-            const containers = document.querySelectorAll('[data-testid="stVerticalBlockBorderWrapper"]');
-            
-            containers.forEach(container => {
-                // Check if this looks like a chat container (has scrollable content)
-                if (container.scrollHeight > container.clientHeight) {
-                    container.scrollTop = container.scrollHeight;
-                }
-            });
-            
-            // Also try to find the specific chat message container
-            const chatContainers = document.querySelectorAll('.stChatMessageContainer');
-            chatContainers.forEach(container => {
-                const parent = container.closest('[data-testid="stVerticalBlockBorderWrapper"]');
-                if (parent) {
-                    parent.scrollTop = parent.scrollHeight;
-                }
-            });
-        }
-        
-        // Run after a short delay to ensure DOM is updated
-        setTimeout(scrollChatToBottom, 100);
-        setTimeout(scrollChatToBottom, 300);
-        setTimeout(scrollChatToBottom, 500);
+        (function() {{
+            // Find scrollable parent by walking up the DOM tree
+            function getScrollParent(node) {{
+                if (!node) return null;
+                
+                let current = node.parentElement;
+                while (current) {{
+                    const style = window.parent.getComputedStyle(current);
+                    if (style.overflowY === 'auto' || style.overflowY === 'scroll') {{
+                        return current;
+                    }}
+                    current = current.parentElement;
+                }}
+                return null;
+            }}
+
+            function attemptScroll() {{
+                const anchor = window.parent.document.getElementById('{anchor_id}');
+                if (!anchor) return false;
+
+                const container = getScrollParent(anchor);
+                if (!container) return false;
+
+                const anchorRect = anchor.getBoundingClientRect();
+                const containerRect = container.getBoundingClientRect();
+                const relativeTop = anchorRect.top - containerRect.top;
+                
+                if (Math.abs(relativeTop) > 5) {{
+                    container.scrollTop += (relativeTop - 5);
+                }}
+                
+                return true;
+            }}
+
+            // Keep scrolling for 1.5 seconds to OVERRIDE Streamlit's auto-scroll
+            // Don't stop on success - Streamlit might scroll again after us
+            let attempts = 0;
+            const interval = setInterval(function() {{
+                attemptScroll();  // Always execute
+                attempts++;
+                if (attempts > 30) {{  // 30 * 50ms = 1.5 seconds
+                    clearInterval(interval);
+                }}
+            }}, 50);
+        }})();
     </script>
     """
-    st.markdown(js_code, unsafe_allow_html=True)
+    
+    # components.html creates iframe that ALWAYS executes JS
+    components.html(js_code, height=0, width=0)
 
+
+# =============================================================================
+# GEMINI SIDEBAR COMPONENTS
+# =============================================================================
 
 def render_gemini_header() -> None:
-    """
-    Render the Gemini chat header with status indicator.
-    """
+    """Render the Gemini chat header with status indicator."""
     col1, col2 = st.columns([4, 1])
     
     with col1:
@@ -263,66 +315,47 @@ def render_gemini_header() -> None:
 
 
 def render_status_badge() -> None:
-    """
-    Render a compact status badge showing Gemini API availability.
-    """
+    """Render a compact status badge showing Gemini API availability."""
     if not GEMINI_MODULE_AVAILABLE:
-        st.caption("❌ Modulo non disponibile")
+        st.caption("❌ Module not available")
         return
     
     status = get_gemini_status()
     
     if not status["library_installed"]:
-        st.caption("❌ Libreria mancante")
+        st.caption("❌ Library missing")
     elif not status["api_key_set"]:
-        st.caption("🔧 Mock mode - configura API key")
+        st.caption("🔧 Mock mode - set API key")
     else:
         st.caption(f"✅ {status['model']}")
 
 
-def render_pending_image_indicator() -> None:
+def render_welcome_message(page_type: str = "single_asset") -> None:
     """
-    Render an indicator showing if a chart is ready to be sent.
-    """
-    if st.session_state.gemini_pending_image is not None:
-        chart_name = st.session_state.gemini_pending_image_name or "Grafico"
-        
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            st.info(f"📎 **{chart_name}** allegato")
-        with col2:
-            if st.button("✕", key="remove_pending_image", help="Rimuovi"):
-                clear_captured_chart()
-                st.rerun()
-
-
-def render_welcome_message_compact() -> None:
-    """
-    Render a compact welcome message for the sidebar chat.
+    Render welcome message with page-specific quick suggestions.
+    
+    Args:
+        page_type: Current page type for appropriate suggestions
     """
     st.markdown("""
     <div style='text-align: center; padding: 10px; color: #666;'>
         <div style='font-size: 24px; margin-bottom: 8px;'>✨</div>
         <div style='font-size: 13px;'>
             Chiedimi qualsiasi cosa sui dati!<br>
-            Usa 📷 accanto ai grafici per allegarli.
+            Seleziona i dati da includere nel menu sotto.
         </div>
     </div>
     """, unsafe_allow_html=True)
     
-    # Quick suggestions
     st.markdown("**💡 Prova:**")
     
-    suggestions = [
-        "Cosa significa Z-score?",
-        "Spiega i punti rossi",
-        "Cos'è un'anomalia?"
-    ]
+    # Get page-specific suggestions
+    suggestions = PAGE_SUGGESTIONS.get(page_type, PAGE_SUGGESTIONS["single_asset"])
     
     for suggestion in suggestions:
         if st.button(
             f"› {suggestion}", 
-            key=f"sug_{hash(suggestion)}", 
+            key=f"sug_{page_type}_{hash(suggestion)}", 
             use_container_width=True,
             type="secondary"
         ):
@@ -330,197 +363,275 @@ def render_welcome_message_compact() -> None:
             st.rerun()
 
 
-def render_chat_messages_compact() -> None:
+def render_chat_messages(page_type: str = "single_asset") -> None:
     """
-    Render all messages in a scrollable container with auto-scroll.
+    Render all messages in a scrollable container with smart auto-scroll.
+    
+    Args:
+        page_type: Current page type for welcome message suggestions
     """
+    import time
+    import streamlit.components.v1 as components
+    
     history = st.session_state.gemini_history
     
     if not history:
-        render_welcome_message_compact()
+        render_welcome_message(page_type)
         return
     
-    # Create scrollable container for messages
-    messages_container = st.container(height=280)
+    # Find index of last user message
+    last_user_index = -1
+    for i in range(len(history) - 1, -1, -1):
+        if history[i].get("role", "user") == "user":
+            last_user_index = i
+            break
+
+    # Generate unique ID (timestamp) to force fresh anchor
+    unique_id = int(time.time() * 1000)
+    anchor_id = f"msg_anchor_{unique_id}"
+
+    # Scrollable container
+    messages_container = st.container(height=300)
     
     with messages_container:
-        for msg in history:
+        for i, msg in enumerate(history):
             role = msg.get("role", "user")
             content = msg.get("content", "")
-            has_image = msg.get("has_image", False)
-            image_name = msg.get("image_name", "")
             
+            # Place anchor BEFORE last user message
+            if i == last_user_index:
+                st.markdown(f'<div id="{anchor_id}" style="height:1px;"></div>', unsafe_allow_html=True)
+
             if role == "user":
                 with st.chat_message("user", avatar="👤"):
                     st.markdown(content)
-                    if has_image:
-                        st.caption(f"📷 {image_name}" if image_name else "📷 Grafico allegato")
+                    if msg.get("data_included"):
+                        st.caption(f"📎 {', '.join(msg['data_included'])}")
             else:
                 with st.chat_message("assistant", avatar="✨"):
                     st.markdown(content)
     
-    # Inject auto-scroll JavaScript
-    inject_auto_scroll_js()
+    # Inject scroll script via iframe
+    inject_auto_scroll_js(anchor_id)
 
 
-def render_chat_input_compact(page_context: Dict[str, Any]) -> None:
+def render_data_selection(page_type: str) -> List[str]:
     """
-    Render compact chat input area (without capture button - moved to charts).
+    Render data selection checkboxes in an expander.
     
     Args:
-        page_context: Dictionary with current page information
+        page_type: The current page type for appropriate options
+    
+    Returns:
+        List of selected data option keys
     """
-    # Check for pending suggestion from button click
+    if page_type not in DATA_OPTIONS:
+        return []
+    
+    options = DATA_OPTIONS[page_type]
+    selected = get_selected_data_options(page_type)
+    
+    with st.expander("📎 Dati da allegare", expanded=False):
+        for key, opt in options.items():
+            new_value = st.checkbox(
+                opt["label"],
+                value=selected.get(key, opt["default"]),
+                key=f"data_opt_{page_type}_{key}",
+                help=opt["description"]
+            )
+            st.session_state.gemini_selected_data[page_type][key] = new_value
+        
+        st.markdown("---")
+        
+        if st.button("🗑️ Pulisci chat", key="gem_clear", use_container_width=True):
+            st.session_state.gemini_history = []
+            if GEMINI_MODULE_AVAILABLE:
+                get_assistant().clear_history()
+            st.rerun()
+    
+    return [
+        key for key, is_selected 
+        in st.session_state.gemini_selected_data[page_type].items() 
+        if is_selected
+    ]
+
+
+def render_chat_input(page_context: Dict[str, Any], selected_data: List[str]) -> None:
+    """
+    Render chat input and handle message submission.
+    
+    Args:
+        page_context: Full page context dictionary
+        selected_data: List of selected data option keys to include
+    """
     if "gemini_pending_question" in st.session_state:
         pending = st.session_state.gemini_pending_question
         del st.session_state.gemini_pending_question
-        _process_user_message(pending, page_context)
+        _process_user_message(pending, page_context, selected_data)
         return
     
-    # Show pending image indicator
-    render_pending_image_indicator()
-    
-    # Text input
     user_input = st.chat_input(
         placeholder="Scrivi una domanda...",
         key=f"gem_input_{st.session_state.gemini_input_key}"
     )
     
     if user_input:
-        _process_user_message(user_input, page_context)
+        _process_user_message(user_input, page_context, selected_data)
 
 
-def _process_user_message(user_input: str, page_context: Dict[str, Any]) -> None:
+def _process_user_message(
+    user_input: str, 
+    page_context: Dict[str, Any], 
+    selected_data: List[str]
+) -> None:
     """
     Process a user message and get response from Gemini.
     
     Args:
         user_input: The user's message text
-        page_context: Current page context dictionary
+        page_context: Full page context dictionary
+        selected_data: List of selected data keys to include
     """
     if not GEMINI_MODULE_AVAILABLE:
-        st.error("Modulo Gemini non disponibile")
+        st.error("Gemini module not available")
         return
     
-    # Get pending image (if any)
-    pending_image = st.session_state.gemini_pending_image
-    pending_image_name = st.session_state.gemini_pending_image_name
+    filtered_context = _filter_context(page_context, selected_data)
     
-    # Clear pending image BEFORE adding to history
-    clear_captured_chart()
+    page_type = page_context.get("page_type", "single_asset")
+    included_names = []
+    if page_type in DATA_OPTIONS:
+        for key in selected_data:
+            if key in DATA_OPTIONS[page_type]:
+                included_names.append(DATA_OPTIONS[page_type][key]["label"])
     
-    # Add user message to history
     user_message = {
         "role": "user",
         "content": user_input,
-        "has_image": pending_image is not None,
-        "image_name": pending_image_name or ""
+        "data_included": included_names
     }
     st.session_state.gemini_history.append(user_message)
     
-    # Get assistant instance
     assistant = get_assistant()
     
-    # Sync history
-    assistant.set_history(st.session_state.gemini_history)
-    
-    # Send message and get response
     with st.spinner("✨ Gemini sta pensando..."):
         response = assistant.send_message(
             question=user_input,
-            page_context=page_context,
-            image_base64=pending_image,
+            page_context=filtered_context,
             history=st.session_state.gemini_history[:-1]
         )
     
-    # Add response to history
     assistant_message = {
         "role": "assistant",
         "content": response,
-        "has_image": False,
-        "image_name": ""
+        "data_included": []
     }
     st.session_state.gemini_history.append(assistant_message)
     
-    # Update assistant history
     assistant.add_to_history("user", user_input)
     assistant.add_to_history("assistant", response)
     
-    # Reset input key to clear the input box
     st.session_state.gemini_input_key += 1
     
     st.rerun()
 
 
-def render_chat_actions_compact() -> None:
+def _filter_context(
+    full_context: Dict[str, Any], 
+    selected_keys: List[str]
+) -> Dict[str, Any]:
     """
-    Render compact action buttons for the sidebar chat.
+    Filter the full context to include only selected data sections.
+    
+    Always includes: page, asset, period, basic info
+    Conditionally includes: detailed statistics based on selection
+    
+    Args:
+        full_context: Complete page context dictionary
+        selected_keys: List of selected data option keys
+    
+    Returns:
+        Filtered context dictionary
     """
-    col1, col2 = st.columns(2)
+    # Base context always included
+    filtered = {
+        "page": full_context.get("page", "Unknown"),
+        "asset": full_context.get("asset", "Unknown"),
+        "asset_display": full_context.get("asset_display", "Unknown"),
+        "granularity": full_context.get("granularity", "daily"),
+        "period": full_context.get("period", {}),
+    }
     
-    with col1:
-        if st.button("🗑️ Pulisci", key="gem_clear", use_container_width=True, type="secondary"):
-            st.session_state.gemini_history = []
-            clear_captured_chart()
-            if GEMINI_MODULE_AVAILABLE:
-                get_assistant().clear_history()
-            st.rerun()
+    # Map of keys to context fields
+    key_mapping = {
+        "price_stats": "price_statistics",
+        "anomalies": "anomalies",
+        "zscore_details": "zscore_details",
+        "volume_stats": "volume_statistics",
+        "volatility_stats": "volatility_statistics",
+        "simulation_progress": "simulation",
+        "realtime_anomalies": "realtime_anomalies",
+        "window_stats": "window_statistics",
+        "correlation_matrix": "correlations",
+        "systemic_events": "systemic_events",
+        "pair_analysis": "pair_analysis",
+        "candlestick_patterns": "candlestick_patterns",
+        "chart_patterns": "chart_patterns",
+        "pattern_distribution": "pattern_distribution",
+    }
     
-    with col2:
-        if st.button("ℹ️ Stato", key="gem_status", use_container_width=True, type="secondary"):
-            if GEMINI_MODULE_AVAILABLE:
-                status = get_gemini_status()
-                st.json(status)
+    for key in selected_keys:
+        if key in key_mapping:
+            field = key_mapping[key]
+            if field in full_context:
+                filtered[field] = full_context[field]
+    
+    return filtered
 
 
 # =============================================================================
 # MAIN SIDEBAR RENDERING FUNCTION
 # =============================================================================
 
-def render_gemini_sidebar(page_context: Dict[str, Any]) -> None:
+def render_gemini_sidebar(
+    page_context: Dict[str, Any],
+    page_type: str = "single_asset"
+) -> None:
     """
     Render the Gemini chat interface inside the sidebar.
     
-    This is the main entry point for adding Gemini chat to the sidebar.
-    Call this function INSIDE the `with st.sidebar:` block.
-    
-    Note: Chart capture is now handled by render_chart_with_capture(),
-    not by this function. Users click 📷 buttons next to charts to
-    attach them to their messages.
+    Layout order:
+    1. Header + status
+    2. Chat messages (with page-specific suggestions)
+    3. Text input (above options for natural flow)
+    4. Data selection expander (settings, used less frequently)
     
     Args:
-        page_context: Dictionary with current page information.
-            Should include keys like:
-            - "page": Page name
-            - "asset": Selected asset
-            - "date_range": Selected date range
-            - Other page-specific parameters
-    
-    Example:
-        >>> with st.sidebar:
-        ...     st.header("Controls")
-        ...     # ... controls ...
-        ...     st.markdown("---")
-        ...     render_gemini_sidebar({"page": "Analysis", "asset": "sp500"})
+        page_context: Dictionary with current page information and data.
+        page_type: Type of page for appropriate data options.
+            One of: 'single_asset', 'realtime', 'cross_asset', 'patterns'
     """
-    # Initialize session state
     init_gemini_session_state()
     
-    # Header with status
+    # 1. Header with status indicator
     render_gemini_header()
-    
-    # Status badge
     render_status_badge()
     
-    # Chat messages (with auto-scroll)
-    render_chat_messages_compact()
+    # 2. Chat messages (scrollable, with page-specific suggestions)
+    render_chat_messages(page_type)
     
-    # Input area
-    render_chat_input_compact(page_context)
+    # 3. Store page_type in context
+    page_context["page_type"] = page_type
     
-    # Action buttons in expander
-    with st.expander("⚙️ Opzioni", expanded=False):
-        render_chat_actions_compact()
+    # Get current selections from session state
+    init_selections = get_selected_data_options(page_type)
+    current_selections = [k for k, v in init_selections.items() if v]
+    
+    # 4. Text input (ABOVE the expander)
+    render_chat_input(page_context, current_selections)
+    
+    # 5. Data selection expander (below input)
+    render_data_selection(page_type)
 
 
 # =============================================================================
@@ -537,23 +648,6 @@ def clear_chat_history() -> None:
     """Clear the chat history in session state."""
     init_gemini_session_state()
     st.session_state.gemini_history = []
-    clear_captured_chart()
     
     if GEMINI_MODULE_AVAILABLE:
         get_assistant().clear_history()
-
-
-def add_system_message(content: str) -> None:
-    """
-    Add a system/info message to the chat.
-    
-    Args:
-        content: The message to display
-    """
-    init_gemini_session_state()
-    st.session_state.gemini_history.append({
-        "role": "assistant",
-        "content": f"ℹ️ {content}",
-        "has_image": False,
-        "image_name": ""
-    })

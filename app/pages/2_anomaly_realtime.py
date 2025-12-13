@@ -1,7 +1,15 @@
 """
 Real-time Anomaly Detection Page (IoT Simulation)
 
-Version 3: Uses make_subplots for perfect X-axis alignment across all charts.
+This page simulates IoT-style streaming data processing with:
+- Sliding window anomaly detection using rolling Z-scores
+- Real-time chart updates with price, volume, and Z-score visualization
+- Anomaly logging with severity classification
+- Post-simulation analysis summary
+
+Gemini AI assistant provides contextual help based on simulation state.
+
+Run with: streamlit run app.py (then navigate to this page)
 """
 
 import os
@@ -18,14 +26,22 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import config
+
+# Import UI components including Gemini sidebar
 from components import (
     title,
-    footer
+    footer,
+    render_gemini_sidebar,
 )
+
+# Import data loader
 from src.data_loader import (
     get_asset_display_name,
     load_single_asset,
 )
+
+# Import Gemini context builder for this page
+from src.gemini_assistant import build_realtime_context
 
 
 # =============================================================================
@@ -87,62 +103,6 @@ with st.sidebar:
     
     st.markdown("---")
     
-    with st.expander("📡 What is IoT Streaming?", expanded=False):
-        st.markdown("""
-        **Internet of Things (IoT)** devices continuously generate 
-        data streams in real-time.
-        
-        **Examples in finance:**
-        - High-frequency trading data
-        - Real-time price feeds
-        - Transaction monitoring
-        
-        **This simulation** mimics how a real IoT system would:
-        1. Receive one data point
-        2. Update statistics incrementally
-        3. Check for anomalies in real-time
-        4. Alert if threshold exceeded
-        """)
-    
-    with st.expander("Sliding Window Explained", expanded=False):
-        st.markdown(f"""
-        **What is a Sliding Window?**
-        
-        A fixed-size window that moves forward as new data arrives.
-        
-        ```
-        Time:  1  2  3  4  5  6  7  8  9  10
-        Data:  •  •  •  •  •  •  •  •  •  •
-                  [----window----]
-                     [----window----]
-        ```
-        
-        **Current window size: {window_size} points**
-        
-        **Trade-offs:**
-        - **Small window:** More sensitive, more false positives
-        - **Large window:** More stable, may miss quick changes
-        """)
-    
-    with st.expander("Rolling Z-Score", expanded=False):
-        st.markdown(f"""
-        **Rolling Z-Score:**
-        ```
-        Z = (x - μ_window) / σ_window
-        ```
-        
-        Uses only the last {window_size} points for mean/std,
-        adapting to recent market conditions.
-        """)
-    
-    with st.expander("⚠️ Anomaly Severity Levels", expanded=False):
-        st.markdown(f"""
-        | Level | Condition |
-        |-------|-----------|
-        | 🟡 LOW | {zscore_threshold}σ ≤ |Z| < {zscore_threshold + 0.5}σ |
-        | 🟠 MEDIUM | {zscore_threshold + 0.5}σ ≤ |Z| < {zscore_threshold + 1.0}σ |
-        | 🔴 HIGH | |Z| ≥ {zscore_threshold + 1.0}σ |
-        """)
 
 
 # =============================================================================
@@ -235,6 +195,70 @@ if "sim_key" not in st.session_state or st.session_state.sim_key != sim_key:
     st.session_state.current_idx = 0
     st.session_state.anomalies = []
     st.session_state.sim_complete = False
+
+
+# =============================================================================
+# GEMINI CONTEXT AND SIDEBAR
+# =============================================================================
+
+# Calculate current simulation metrics for Gemini context
+current_idx = st.session_state.current_idx
+anomalies = st.session_state.anomalies
+progress_pct = (current_idx / len(df_day)) * 100 if len(df_day) > 0 else 0
+current_price = prices[current_idx - 1] if current_idx > 0 else None
+
+# Calculate current Z-score if enough data
+current_zscore = None
+if current_idx > window_size:
+    window_data = prices[current_idx - window_size:current_idx]
+    mean = np.mean(window_data)
+    std = np.std(window_data)
+    if std > 0:
+        current_zscore = (prices[current_idx - 1] - mean) / std
+
+# Format anomaly list for context (last 10 anomalies)
+anomaly_list = []
+for a in anomalies[-10:]:
+    anomaly_list.append({
+        "time": str(a["timestamp"])[11:19],  # HH:MM:SS format
+        "price": f"${a['price']:.2f}",
+        "zscore": f"{a['zscore']:.2f}σ"
+    })
+
+# Optional window statistics
+window_stats = None
+if current_idx > window_size:
+    window_data = prices[current_idx - window_size:current_idx]
+    window_stats = {
+        "mean": f"${np.mean(window_data):.2f}",
+        "std": f"${np.std(window_data):.4f}",
+        "min": f"${np.min(window_data):.2f}",
+        "max": f"${np.max(window_data):.2f}"
+    }
+
+# Build Gemini context with current simulation state
+gemini_context = build_realtime_context(
+    asset=selected_asset,
+    asset_display=get_asset_display_name(selected_asset),
+    simulation_day=str(selected_day),
+    window_size=window_size,
+    zscore_threshold=zscore_threshold,
+    progress_pct=progress_pct,
+    points_streamed=current_idx,
+    total_points=len(df_day),
+    anomalies_found=len(anomalies),
+    anomaly_list=anomaly_list,
+    current_price=current_price,
+    current_zscore=current_zscore,
+    window_stats=window_stats
+)
+
+# Render Gemini sidebar with real-time context
+with st.sidebar:
+    render_gemini_sidebar(
+        page_context=gemini_context,
+        page_type="realtime"
+    )
 
 
 # =============================================================================
@@ -498,7 +522,7 @@ def create_combined_chart(current_idx, anomalies):
         fig.add_annotation(
             x=0.5, y=0.5,
             xref="paper", yref="paper",
-            text="Press ▶️ Start to begin streaming simulation",
+            text="Press ▶️ Start to begin streaming simulation",
             showarrow=False,
             font=dict(size=18, color="gray")
         )
@@ -565,14 +589,14 @@ col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     start_btn = st.button(
-        "▶️ Start", 
+        "▶️ Start", 
         use_container_width=True, 
         disabled=st.session_state.sim_running or st.session_state.sim_complete
     )
 
 with col2:
     if st.session_state.sim_paused:
-        resume_btn = st.button("▶️ Resume", use_container_width=True)
+        resume_btn = st.button("▶️ Resume", use_container_width=True)
         pause_btn = False
     else:
         pause_btn = st.button(
@@ -719,7 +743,7 @@ log_df = render_anomaly_log(anomalies, current_idx)
 if log_df is not None:
     st.dataframe(log_df, use_container_width=True, height=200)
 elif st.session_state.sim_complete:
-    st.toast("No anomalies detected during this simulation.", icon="ℹ️")
+    st.toast("No anomalies detected during this simulation.", icon="ℹ️")
 
 
 # =============================================================================

@@ -1,11 +1,16 @@
 """
 Pattern Recognition Page
 
-This page provides pattern analysis including:
-- Candlestick patterns (Doji, Hammer, Engulfing) with markers
+This page provides comprehensive pattern analysis including:
+- Candlestick patterns (Doji, Hammer, Engulfing) with interactive markers
 - Chart patterns (Double Top/Bottom, Head & Shoulders, Cup & Handle)
-  -> ONLY colored regions, NO markers
-  -> Clickable legend to show/hide each pattern type
+  displayed as colored regions with clickable legend
+- Pattern distribution analysis and timeline visualization
+- Calibration sliders for fine-tuning detection sensitivity
+
+Gemini AI assistant provides contextual help on pattern interpretation.
+
+Run with: streamlit run app.py (then navigate to this page)
 """
 
 import os
@@ -21,6 +26,15 @@ from plotly.subplots import make_subplots
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import config
+
+# Import UI components including Gemini sidebar
+from components import (
+    footer,
+    title,
+    render_gemini_sidebar,
+)
+
+# Import data and pattern recognition modules
 from src.data_loader import (
     filter_by_date_range,
     get_asset_display_name,
@@ -34,6 +48,9 @@ from src.pattern_recognition import (
     get_pattern_table,
 )
 
+# Import Gemini context builder for this page
+from src.gemini_assistant import build_pattern_context
+
 
 # =============================================================================
 # PAGE CONFIGURATION
@@ -45,10 +62,8 @@ st.set_page_config(
     layout=config.LAYOUT
 )
 
-st.title("🔮 Pattern Recognition")
-st.markdown("""
-Identify candlestick and chart patterns that may indicate future price movements.
-""")
+title("🔮 Pattern Recognition",
+      "Identify candlestick and chart patterns that may indicate future price movements.")
 
 
 # =============================================================================
@@ -56,7 +71,7 @@ Identify candlestick and chart patterns that may indicate future price movements
 # =============================================================================
 
 with st.sidebar:
-    st.header("⚙️ Controls")
+    st.header("⚙️ Controls")
     
     asset_options = {key: get_asset_display_name(key) for key in config.ASSETS.keys()}
     selected_asset = st.selectbox(
@@ -68,7 +83,7 @@ with st.sidebar:
     st.info("📊 Using **Daily** data for pattern recognition")
     
     st.markdown("---")
-    st.subheader("🎛️ Pattern Calibration")
+    st.subheader("🎛️ Pattern Calibration")
     
     tolerance = st.slider(
         "Price Tolerance (%)",
@@ -100,36 +115,6 @@ with st.sidebar:
     )
     
     st.markdown("---")
-    
-    with st.expander("🕯️ Candlestick Patterns", expanded=False):
-        st.markdown("""
-        **Candlestick patterns** are short-term formations (1-2 candles).
-        
-        - **Doji**: Open ≈ Close, indecision
-        - **Hammer**: Long lower shadow, bullish reversal
-        - **Engulfing Bullish**: Green engulfs red
-        - **Engulfing Bearish**: Red engulfs green
-        """)
-    
-    with st.expander("📈 Chart Patterns", expanded=False):
-        st.markdown("""
-        **Chart patterns** form over longer periods.
-        
-        - **Double Top** (Bearish): Two peaks, M shape
-        - **Double Bottom** (Bullish): Two troughs, W shape
-        - **Head & Shoulders** (Bearish): Three peaks
-        - **Cup & Handle** (Bullish): Rounded bottom + pullback
-        """)
-    
-    with st.expander("⚠️ Disclaimer", expanded=False):
-        st.markdown("""
-        **Educational purposes only.**
-        
-        Patterns are not predictions. Never make investment 
-        decisions based solely on technical patterns.
-        """)
-
-
 # =============================================================================
 # DATA LOADING
 # =============================================================================
@@ -207,13 +192,54 @@ with st.spinner("Detecting patterns..."):
 
 
 # =============================================================================
+# GEMINI CONTEXT AND SIDEBAR
+# =============================================================================
+
+# Get pattern summary for context
+pattern_summary = get_pattern_summary(df_patterns)
+
+# Format chart patterns for context (simplified list)
+chart_pattern_list = []
+for p in chart_patterns[:10]:  # Limit to 10 for context
+    chart_pattern_list.append({
+        "type": p["type"],
+        "signal": p["signal"],
+        "start": str(p["start_date"])[:10],
+        "end": str(p["end_date"])[:10],
+        "confidence": f"{p.get('confidence', 0.5) * 100:.0f}%"
+    })
+
+# Build Gemini context with pattern data
+gemini_context = build_pattern_context(
+    asset=selected_asset,
+    asset_display=get_asset_display_name(selected_asset),
+    start_date=str(start_date),
+    end_date=str(end_date),
+    candlestick_counts=pattern_summary,
+    chart_patterns=chart_pattern_list,
+    pattern_distribution={
+        "total_candlestick": sum(pattern_summary.values()),
+        "total_chart": len(chart_patterns),
+        "bullish_signals": pattern_summary.get("hammer", 0) + pattern_summary.get("engulfing_bullish", 0),
+        "bearish_signals": pattern_summary.get("engulfing_bearish", 0)
+    }
+)
+
+# Render Gemini sidebar with pattern context
+with st.sidebar:
+    render_gemini_sidebar(
+        page_context=gemini_context,
+        page_type="patterns"
+    )
+
+
+# =============================================================================
 # SUMMARY METRICS
 # =============================================================================
 
 st.markdown("---")
 st.markdown("### 📊 Pattern Summary")
 
-pattern_summary = get_pattern_summary(df_patterns)
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -234,7 +260,7 @@ with col5:
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### 🕯️ Candlestick Patterns")
+st.markdown("### 🕯️ Candlestick Patterns")
 st.markdown("*Click on legend items to show/hide patterns*")
 
 open_col = config.COLUMNS["open"]
@@ -649,9 +675,4 @@ else:
 # FOOTER
 # =============================================================================
 
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: gray;'>
-    Pattern Recognition | IoT & Data Analytics Project
-</div>
-""", unsafe_allow_html=True)
+footer("Pattern Recognition")

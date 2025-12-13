@@ -1,16 +1,15 @@
 """
 Single Asset Analysis Page
 
-This page provides comprehensive analysis of a single asset including:
+Comprehensive analysis of a single financial asset including:
 - Interactive candlestick chart with zoom-to-anomaly feature
 - Volume chart with anomaly highlighting
 - Z-score visualization with configurable thresholds
 - Volatility analysis
 - Detailed anomaly table with export functionality
-- Gemini AI assistant integrated in sidebar
-- Chart capture buttons to send any chart to Gemini
+- Gemini AI assistant with data-driven context (sidebar)
 
-For minute data: simple week selectbox for performance optimization.
+For minute data: weekly navigation for performance optimization.
 
 Run with: streamlit run app.py (then navigate to this page)
 """
@@ -34,7 +33,6 @@ from components import (
     footer,
     title,
     render_gemini_sidebar,
-    render_chart_with_capture,
 )
 
 # Import analysis modules
@@ -126,14 +124,22 @@ def get_available_weeks(asset: str, granularity: str):
 
 
 # =============================================================================
-# SIDEBAR - CONTROLS AND GEMINI ASSISTANT
+# LOAD INITIAL DATA FOR SIDEBAR
+# =============================================================================
+
+# Get asset options
+asset_options = {key: get_asset_display_name(key) for key in config.ASSETS.keys()}
+granularity_options = {key: get_granularity_display_name(key) for key in config.GRANULARITY_PATHS.keys()}
+
+
+# =============================================================================
+# SIDEBAR - CONTROLS
 # =============================================================================
 
 with st.sidebar:
     st.header("⚙️ Controls")
     
-    # Asset Selection
-    asset_options = {key: get_asset_display_name(key) for key in config.ASSETS.keys()}
+    # Asset selection
     selected_asset = st.selectbox(
         "Select Asset",
         options=list(asset_options.keys()),
@@ -141,11 +147,7 @@ with st.sidebar:
         format_func=lambda x: asset_options[x]
     )
     
-    # Granularity Selection
-    granularity_options = {
-        key: get_granularity_display_name(key) 
-        for key in config.GRANULARITY_PATHS.keys()
-    }
+    # Granularity selection
     selected_granularity = st.selectbox(
         "Select Granularity",
         options=list(granularity_options.keys()),
@@ -156,7 +158,7 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # Z-Score Threshold
+    # Z-Score threshold
     zscore_threshold = st.slider(
         "Z-Score Threshold",
         min_value=1.0,
@@ -166,22 +168,12 @@ with st.sidebar:
         help="Values beyond this threshold are classified as anomalies"
     )
     
-    # Show Anomalies Toggle
+    # Show anomalies toggle
     show_anomalies = st.checkbox("Highlight Anomalies", value=True)
     
     st.markdown("---")
     
-    # Gemini context (basic - will be enriched after data loads)
-    page_context = {
-        "page": "Single Asset Analysis",
-        "asset": selected_asset,
-        "asset_display": get_asset_display_name(selected_asset),
-        "granularity": selected_granularity,
-        "zscore_threshold": zscore_threshold
-    }
-    
-    # Render Gemini chat in sidebar
-    render_gemini_sidebar(page_context)
+    # Gemini sidebar will be rendered after data is loaded (at end of sidebar block)
 
 
 # =============================================================================
@@ -208,13 +200,13 @@ except Exception as e:
 
 
 # =============================================================================
-# DATE RANGE SELECTION
+# DATE RANGE SELECTION (MAIN AREA)
 # =============================================================================
 
 st.markdown("### 📅 Date Range")
 
 if selected_granularity == "minute":
-    st.toast("Minute data is limited to **one week at a time** for performance.", icon="⚠️")
+    st.info("⚠️ Minute data is limited to **one week at a time** for performance.")
     
     weeks = get_available_weeks(selected_asset, selected_granularity)
     
@@ -273,16 +265,8 @@ except Exception as e:
 
 
 # =============================================================================
-# PREPARE DATA FOR VISUALIZATION
+# PREPARE DATA AND STATISTICS
 # =============================================================================
-
-# Get anomaly table and counts
-anomaly_df = get_anomaly_table(df_processed)
-anomaly_counts = count_anomalies(df_processed)
-
-# Store selected date range for zoom
-if "selected_zoom_range" not in st.session_state:
-    st.session_state.selected_zoom_range = None
 
 # Get column names
 open_col = config.COLUMNS["open"]
@@ -291,6 +275,88 @@ low_col = config.COLUMNS["low"]
 close_col = config.COLUMNS["close"]
 volume_col = config.COLUMNS["volume"]
 
+# Get anomaly data
+anomaly_df = get_anomaly_table(df_processed)
+anomaly_counts = count_anomalies(df_processed)
+
+# Calculate statistics for Gemini context
+price_stats = {
+    "current": f"${df_processed[close_col].iloc[-1]:.2f}",
+    "min": f"${df_processed[close_col].min():.2f}",
+    "max": f"${df_processed[close_col].max():.2f}",
+    "mean": f"${df_processed[close_col].mean():.2f}",
+    "change_pct": f"{((df_processed[close_col].iloc[-1] / df_processed[close_col].iloc[0]) - 1) * 100:+.2f}%"
+}
+
+# Z-Score current values
+zscore_current = {
+    "price": f"{df_processed['zscore_close'].iloc[-1]:.2f}σ",
+    "volume": f"{df_processed['zscore_volume'].iloc[-1]:.2f}σ",
+    "volatility": f"{df_processed['zscore_volatility'].iloc[-1]:.2f}σ" if 'zscore_volatility' in df_processed.columns else "N/A"
+}
+
+# Volume statistics
+volume_stats = {
+    "current": f"{df_processed[volume_col].iloc[-1]:,.0f}",
+    "mean": f"{df_processed[volume_col].mean():,.0f}",
+    "max": f"{df_processed[volume_col].max():,.0f}",
+    "min": f"{df_processed[volume_col].min():,.0f}"
+}
+
+# Volatility statistics
+df_processed["volatility_range"] = df_processed[high_col] - df_processed[low_col]
+volatility_stats = {
+    "current": f"${df_processed['volatility_range'].iloc[-1]:.2f}",
+    "mean": f"${df_processed['volatility_range'].mean():.2f}",
+    "max": f"${df_processed['volatility_range'].max():.2f}"
+}
+
+# Anomaly details for context
+anomaly_details = []
+if len(anomaly_df) > 0:
+    for _, row in anomaly_df.head(15).iterrows():
+        anomaly_details.append({
+            "date": str(row["timestamp"])[:19],
+            "type": row["type"],
+            "zscore": f"{row['zscore']:.2f}σ",
+            "value": f"{row['value']:.2f}" if pd.notna(row['value']) else "N/A"
+        })
+
+# Build full context for Gemini
+gemini_context = build_single_asset_context(
+    asset=selected_asset,
+    asset_display=get_asset_display_name(selected_asset),
+    granularity=selected_granularity,
+    start_date=str(start_date),
+    end_date=str(end_date),
+    total_records=len(df_processed),
+    price_stats=price_stats,
+    anomaly_counts=anomaly_counts,
+    anomaly_details=anomaly_details,
+    zscore_current=zscore_current,
+    volume_stats=volume_stats,
+    volatility_stats=volatility_stats
+)
+
+
+# =============================================================================
+# RENDER GEMINI SIDEBAR (after data is ready)
+# =============================================================================
+
+with st.sidebar:
+    render_gemini_sidebar(
+        page_context=gemini_context,
+        page_type="single_asset"
+    )
+
+
+# =============================================================================
+# ZOOM STATE
+# =============================================================================
+
+if "selected_zoom_range" not in st.session_state:
+    st.session_state.selected_zoom_range = None
+
 
 # =============================================================================
 # MAIN CHART: PRICE, VOLUME & VOLATILITY
@@ -298,7 +364,6 @@ volume_col = config.COLUMNS["volume"]
 
 st.markdown("---")
 st.markdown("### 📈 Price, Volume & Volatility")
-st.caption("💡 Clicca **📷 Gemini** per inviare questo grafico all'assistente AI")
 
 # Create subplot figure
 fig_main = make_subplots(
@@ -370,7 +435,6 @@ fig_main.add_trace(
 )
 
 # Row 3: Volatility
-df_processed["volatility_range"] = df_processed[high_col] - df_processed[low_col]
 vol_anomaly_mask = df_processed["anomaly_volatility"] if show_anomalies else pd.Series([False] * len(df_processed))
 
 fig_main.add_trace(
@@ -427,8 +491,8 @@ fig_main.update_yaxes(title_text="Volume", row=2, col=1)
 fig_main.update_yaxes(title_text="Range ($)", row=3, col=1)
 fig_main.update_xaxes(title_text="Date", row=3, col=1)
 
-# Render chart with capture button
-render_chart_with_capture(fig_main, "Price/Volume/Volatility Chart", "main_chart")
+# Render chart (using width='stretch' instead of deprecated use_container_width)
+st.plotly_chart(fig_main, width='stretch')
 
 
 # =============================================================================
@@ -486,9 +550,7 @@ if len(anomaly_df) > 0:
 
 st.markdown("---")
 st.markdown("### 📊 Z-Score Analysis")
-st.caption("💡 Ogni grafico ha il suo pulsante **📷 Gemini** per l'invio all'assistente")
 
-# Get threshold lines
 thresholds = get_threshold_lines(zscore_threshold)
 
 
@@ -561,7 +623,7 @@ with tab1:
         "Price Z-Score",
         df_processed["anomaly_price"]
     )
-    render_chart_with_capture(fig_zscore_price, "Price Z-Score Chart", "zscore_price")
+    st.plotly_chart(fig_zscore_price, width='stretch')
 
 with tab2:
     fig_zscore_volume = create_zscore_chart(
@@ -569,7 +631,7 @@ with tab2:
         "Volume Z-Score",
         df_processed["anomaly_volume"]
     )
-    render_chart_with_capture(fig_zscore_volume, "Volume Z-Score Chart", "zscore_volume")
+    st.plotly_chart(fig_zscore_volume, width='stretch')
 
 with tab3:
     fig_zscore_volatility = create_zscore_chart(
@@ -577,7 +639,7 @@ with tab3:
         "Volatility Z-Score",
         df_processed["anomaly_volatility"]
     )
-    render_chart_with_capture(fig_zscore_volatility, "Volatility Z-Score Chart", "zscore_volatility")
+    st.plotly_chart(fig_zscore_volatility, width='stretch')
 
 
 # =============================================================================
@@ -607,7 +669,6 @@ st.markdown("---")
 st.markdown("### 🔍 Anomaly Details")
 
 if len(anomaly_df) > 0:
-    # Format table
     anomaly_df_display = anomaly_df.copy()
     anomaly_df_display["timestamp"] = anomaly_df_display["timestamp"].astype(str)
     anomaly_df_display["value"] = anomaly_df_display["value"].apply(lambda x: f"{x:,.2f}" if pd.notna(x) else "-")
@@ -615,16 +676,14 @@ if len(anomaly_df) > 0:
     anomaly_df_display["pct_change"] = anomaly_df_display["pct_change"].apply(lambda x: f"{x:+.2f}%" if pd.notna(x) else "-")
     anomaly_df_display.columns = ["Timestamp", "Type", "Value", "Z-Score", "% Change"]
     
-    # Filter
     anomaly_types = ["All"] + list(anomaly_df["type"].unique())
     selected_type = st.selectbox("Filter by Type", anomaly_types)
     
     if selected_type != "All":
         anomaly_df_display = anomaly_df_display[anomaly_df_display["Type"] == selected_type]
     
-    st.dataframe(anomaly_df_display, use_container_width=True, height=400)
+    st.dataframe(anomaly_df_display, width='stretch', height=400)
     
-    # Download
     csv = anomaly_df.to_csv(index=True, index_label="ID")
     st.download_button(
         label="📥 Download Anomalies CSV",

@@ -1,38 +1,36 @@
 """
-Gemini Assistant Module for IoT Financial Data Analytics.
+Gemini AI Assistant Module for IoT Financial Data Analytics.
 
-This module handles all interactions with Google's Gemini AI API, providing:
-- Client initialization and configuration
-- Message sending with multimodal support (text + images)
+This module provides integration with Google's Gemini API for intelligent
+chat assistance. It sends structured data context (not images) for reliable
+LLM analysis of financial metrics.
+
+Key Features:
+- Automatic API key detection from environment
+- Mock mode fallback for testing without API key
+- Rich context builders for each page type
 - Conversation history management
-- Page context building for contextual responses
-- Chart capture and encoding for visual analysis
-
-The module supports a "mock mode" for UI testing without an API key.
+- Error handling with user-friendly messages
 
 Usage:
-    from src.gemini_assistant import GeminiAssistant
+    from src.gemini_assistant import get_assistant, build_single_asset_context
     
-    assistant = GeminiAssistant()
-    response = assistant.send_message(
-        question="What does this anomaly mean?",
-        page_context={"page": "Single Asset", "asset": "sp500"},
-        image_base64=None  # Optional: chart image
-    )
+    assistant = get_assistant()
+    context = build_single_asset_context(...)
+    response = assistant.send_message("Analyze the anomalies", context)
 """
 
-import base64
-import io
 import os
-import sys
-from typing import Any, Dict, List, Optional, Tuple
+import json
+from typing import Any, Dict, List, Optional
 
-# Add parent directory to path for config import
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import config
+# Try to import config
+try:
+    import config
+except ImportError:
+    config = None
 
-# Try to import Google Generative AI library
-# Gracefully handle missing dependency
+# Try to import Gemini library
 try:
     import google.generativeai as genai
     GENAI_AVAILABLE = True
@@ -40,13 +38,71 @@ except ImportError:
     GENAI_AVAILABLE = False
     genai = None
 
-# Try to import dotenv for .env file support
-# This is optional - environment variables work without it
-try:
-    from dotenv import load_dotenv
-    load_dotenv()  # Load .env file if present
-except ImportError:
-    pass  # dotenv not installed, skip
+
+# =============================================================================
+# CONFIGURATION DEFAULTS
+# =============================================================================
+
+DEFAULT_MODEL = "gemini-2.0-flash"
+DEFAULT_MAX_TOKENS = 1024
+DEFAULT_TEMPERATURE = 0.7
+DEFAULT_HISTORY_LENGTH = 14
+
+# System prompt in Italian for financial analysis assistant
+DEFAULT_SYSTEM_PROMPT = """Sei un assistente esperto di analisi finanziaria e IoT integrato in una dashboard di analytics.
+
+CONTESTO APPLICAZIONE:
+Questa è una dashboard universitaria che analizza dati finanziari (S&P 500, Gold, Oil, USD Index, Bitcoin) 
+usando tecniche IoT per il rilevamento di anomalie e pattern recognition.
+
+LE TUE COMPETENZE:
+1. **Z-Score e Anomalie**: Sai spiegare come il Z-score misura le deviazioni standard dalla media.
+   - Z > 3 o Z < -3 indica anomalie significative
+   - Puoi interpretare cosa significa un'anomalia di prezzo vs volume vs volatilità
+
+2. **Sliding Window**: Comprendi l'elaborazione real-time con finestre mobili tipica dei sistemi IoT.
+
+3. **Correlazioni**: Sai interpretare matrici di correlazione e identificare relazioni tra asset.
+   - Correlazione positiva: asset si muovono insieme
+   - Correlazione negativa: asset si muovono in direzioni opposte
+   - Gold e USD tipicamente negativamente correlati
+
+4. **Pattern Recognition**: Conosci i pattern candlestick (Doji, Hammer, Engulfing) e chart patterns 
+   (Double Top/Bottom, Head & Shoulders, Cup & Handle).
+
+LINEE GUIDA RISPOSTE:
+- Rispondi SEMPRE in italiano
+- Sii conciso ma informativo (max 200 parole per risposta normale)
+- Usa emoji per rendere le risposte più leggibili
+- Quando ricevi dati contestuali, analizzali specificamente
+- Se non hai dati sufficienti, chiedi all'utente di selezionare più opzioni nel menu "Dati da allegare"
+
+COSA NON FARE:
+- NON dare consigli di investimento specifici ("compra", "vendi")
+- NON fare previsioni sul prezzo futuro
+- NON inventare dati che non ti sono stati forniti
+- Se non sai qualcosa, ammettilo onestamente
+
+Sei pronto ad aiutare con l'analisi dei dati finanziari!"""
+
+# Mock response for testing without API key
+MOCK_RESPONSE = """🔧 **Modalità Demo**
+
+Gemini non è configurato. Per attivare l'assistente:
+
+1. Ottieni una API key gratuita da [Google AI Studio](https://aistudio.google.com/)
+2. Imposta la variabile d'ambiente:
+   ```
+   export GEMINI_API_KEY="la-tua-chiave"
+   ```
+3. Riavvia l'applicazione
+
+La tua domanda era: "{question}"
+
+In modalità demo, posso comunque spiegarti i concetti base:
+- **Z-Score**: Misura quante deviazioni standard un valore è dalla media
+- **Anomalia**: Un valore con |Z| > 3 (molto raro, ~0.3% probabilità)
+- **Correlazione**: Misura da -1 a +1 quanto due asset si muovono insieme"""
 
 
 # =============================================================================
@@ -55,385 +111,309 @@ except ImportError:
 
 class GeminiAssistant:
     """
-    Main class for interacting with the Gemini AI API.
+    Wrapper class for Google Gemini API interactions.
     
-    Handles initialization, message sending, and conversation management.
-    Supports both text-only and multimodal (text + image) interactions.
+    Handles:
+    - API initialization and configuration
+    - Message sending with context
+    - Conversation history management
+    - Error handling and fallback modes
     
     Attributes:
-        client: The Gemini generative model instance (or None in mock mode)
-        is_mock_mode: Whether the assistant is running without a real API key
+        model: The Gemini model instance (or None in mock mode)
+        api_key_set: Whether a valid API key is configured
         history: List of conversation messages
-    
-    Example:
-        >>> assistant = GeminiAssistant()
-        >>> if assistant.is_mock_mode:
-        ...     print("Running in mock mode - configure API key for real responses")
-        >>> response = assistant.send_message("Explain Z-score")
     """
     
     def __init__(self):
-        """
-        Initialize the Gemini Assistant.
-        
-        Attempts to configure the Gemini API client using the API key from
-        environment variables. Falls back to mock mode if the key is missing
-        or the library is not installed.
-        """
-        self.client = None
-        self.is_mock_mode = True
+        """Initialize the Gemini assistant with configuration from config.py or defaults."""
+        self.model = None
+        self.api_key_set = False
         self.history: List[Dict[str, str]] = []
         
-        # Attempt to initialize the real client
-        self._init_client()
-    
-    def _init_client(self) -> None:
-        """
-        Initialize the Gemini API client.
+        # Load configuration
+        self.model_name = getattr(config, 'GEMINI_MODEL', DEFAULT_MODEL) if config else DEFAULT_MODEL
+        self.max_tokens = getattr(config, 'GEMINI_MAX_TOKENS', DEFAULT_MAX_TOKENS) if config else DEFAULT_MAX_TOKENS
+        self.temperature = getattr(config, 'GEMINI_TEMPERATURE', DEFAULT_TEMPERATURE) if config else DEFAULT_TEMPERATURE
+        self.max_history = getattr(config, 'GEMINI_HISTORY_LENGTH', DEFAULT_HISTORY_LENGTH) if config else DEFAULT_HISTORY_LENGTH
+        self.system_prompt = getattr(config, 'GEMINI_SYSTEM_PROMPT', DEFAULT_SYSTEM_PROMPT) if config else DEFAULT_SYSTEM_PROMPT
         
-        Reads the API key from the environment variable specified in config.
-        Sets is_mock_mode to False only if initialization succeeds.
-        """
-        # Check if the library is available
+        # Initialize API if available
+        self._initialize_api()
+    
+    def _initialize_api(self) -> None:
+        """Initialize the Gemini API with the configured API key."""
         if not GENAI_AVAILABLE:
-            self._log_warning(
-                "google-generativeai library not installed. "
-                "Run: pip install google-generativeai"
-            )
             return
         
-        # Get API key from environment
-        api_key = os.environ.get(config.GEMINI_API_KEY_ENV)
+        api_key = os.environ.get('GEMINI_API_KEY', '')
         
         if not api_key:
-            self._log_warning(
-                f"API key not found in environment variable '{config.GEMINI_API_KEY_ENV}'. "
-                "Running in mock mode."
-            )
             return
         
         try:
-            # Configure the API with the key
             genai.configure(api_key=api_key)
             
-            # Initialize the generative model
-            self.client = genai.GenerativeModel(
-                model_name=config.GEMINI_MODEL,
-                generation_config={
-                    "max_output_tokens": config.GEMINI_MAX_TOKENS,
-                    "temperature": config.GEMINI_TEMPERATURE,
-                }
+            # Create model with generation config
+            generation_config = genai.types.GenerationConfig(
+                max_output_tokens=self.max_tokens,
+                temperature=self.temperature,
             )
             
-            self.is_mock_mode = False
-            self._log_info(f"Gemini client initialized successfully with model: {config.GEMINI_MODEL}")
+            self.model = genai.GenerativeModel(
+                model_name=self.model_name,
+                generation_config=generation_config,
+            )
+            
+            self.api_key_set = True
             
         except Exception as e:
-            self._log_warning(f"Failed to initialize Gemini client: {str(e)}")
-            self.client = None
-            self.is_mock_mode = True
-    
-    # =========================================================================
-    # MESSAGE SENDING
-    # =========================================================================
+            print(f"[GeminiAssistant] API initialization error: {e}")
+            self.model = None
+            self.api_key_set = False
     
     def send_message(
         self,
         question: str,
         page_context: Optional[Dict[str, Any]] = None,
-        image_base64: Optional[str] = None,
         history: Optional[List[Dict[str, str]]] = None
     ) -> str:
         """
         Send a message to Gemini and get a response.
         
-        Builds a complete prompt including system instructions, page context,
-        conversation history, and the user's question. Optionally includes
-        an image for visual analysis.
-        
         Args:
-            question: The user's question or message
-            page_context: Dictionary with current page information (asset, dates, etc.)
-            image_base64: Optional base64-encoded PNG image of a chart
-            history: Optional conversation history (uses internal history if not provided)
+            question: The user's question
+            page_context: Dictionary with current page data and statistics
+            history: Optional conversation history to include
         
         Returns:
-            The assistant's response as a string
-        
-        Example:
-            >>> response = assistant.send_message(
-            ...     question="Why is this point red?",
-            ...     page_context={"page": "Single Asset", "asset": "gold"},
-            ...     image_base64=chart_image_base64
-            ... )
+            The assistant's response text
         """
-        # Use mock mode if client not available
-        if self.is_mock_mode:
+        # Use mock mode if API not available
+        if not self.api_key_set or self.model is None:
             return self._get_mock_response(question)
         
         try:
-            # Build the complete prompt
-            prompt_parts = self._build_prompt_parts(
-                question=question,
-                page_context=page_context,
-                image_base64=image_base64,
-                history=history
-            )
+            # Build the full prompt
+            prompt = self._build_prompt(question, page_context, history)
             
-            # Send to Gemini API
-            response = self.client.generate_content(prompt_parts)
+            # Send to Gemini
+            response = self.model.generate_content(prompt)
             
             # Extract text from response
             if response and response.text:
                 return response.text
             else:
-                return "Mi dispiace, non sono riuscito a generare una risposta. Riprova."
+                return "⚠️ Risposta vuota dal modello. Riprova."
                 
         except Exception as e:
-            error_message = str(e)
-            self._log_warning(f"Gemini API error: {error_message}")
-            
-            # Return user-friendly error message
-            if "quota" in error_message.lower():
-                return (
-                    "⚠️ **Quota API esaurita**\n\n"
-                    "Hai raggiunto il limite di richieste gratuite. "
-                    "Riprova tra qualche minuto o domani."
-                )
-            elif "invalid" in error_message.lower() and "key" in error_message.lower():
-                return (
-                    "⚠️ **API Key non valida**\n\n"
-                    "La chiave API configurata non è valida. "
-                    "Verifica la configurazione."
-                )
-            else:
-                return (
-                    f"⚠️ **Errore API**\n\n"
-                    f"Si è verificato un errore: {error_message}\n\n"
-                    "Riprova tra qualche istante."
-                )
+            return self._handle_error(e)
     
-    def _build_prompt_parts(
+    def _build_prompt(
         self,
         question: str,
-        page_context: Optional[Dict[str, Any]] = None,
-        image_base64: Optional[str] = None,
-        history: Optional[List[Dict[str, str]]] = None
-    ) -> List[Any]:
+        page_context: Optional[Dict[str, Any]],
+        history: Optional[List[Dict[str, str]]]
+    ) -> str:
         """
-        Build the complete prompt parts for the Gemini API.
-        
-        Assembles all components into a single prompt:
-        1. System prompt (assistant personality and knowledge)
-        2. Page context (current dashboard state)
-        3. Conversation history (recent messages)
-        4. Current question
-        5. Optional image
+        Build the complete prompt with system instructions, context, and history.
         
         Args:
-            question: The user's current question
-            page_context: Dictionary with page-specific information
-            image_base64: Optional base64-encoded image
+            question: The user's question
+            page_context: Current page data
             history: Conversation history
         
         Returns:
-            List of prompt parts ready for the Gemini API
+            Complete formatted prompt string
         """
         parts = []
         
-        # 1. System prompt
-        system_prompt = self.get_system_prompt()
-        parts.append(system_prompt)
+        # System prompt
+        parts.append(f"=== ISTRUZIONI SISTEMA ===\n{self.system_prompt}\n")
         
-        # 2. Page context
+        # Page context (if provided)
         if page_context:
-            context_str = self.build_page_context(page_context)
-            parts.append(f"\n\n## CONTESTO PAGINA CORRENTE\n{context_str}")
+            context_str = self._format_context(page_context)
+            parts.append(f"=== CONTESTO DATI CORRENTI ===\n{context_str}\n")
         
-        # 3. Conversation history
-        history_to_use = history if history is not None else self.history
-        if history_to_use:
-            history_str = self._format_history(history_to_use)
-            if history_str:
-                parts.append(f"\n\n## CONVERSAZIONE PRECEDENTE\n{history_str}")
+        # Conversation history (limited)
+        if history:
+            recent_history = history[-self.max_history:]
+            if recent_history:
+                history_str = self._format_history(recent_history)
+                parts.append(f"=== CONVERSAZIONE PRECEDENTE ===\n{history_str}\n")
         
-        # 4. Current question
-        parts.append(f"\n\n## DOMANDA UTENTE\n{question}")
+        # Current question
+        parts.append(f"=== DOMANDA UTENTE ===\n{question}\n")
+        parts.append("=== TUA RISPOSTA ===")
         
-        # 5. Image (if provided)
-        if image_base64:
-            try:
-                image_data = self._decode_base64_image(image_base64)
-                parts.append(image_data)
-                parts.append("\n\n[L'utente ha allegato un'immagine del grafico corrente. Analizzala nel contesto della domanda.]")
-            except Exception as e:
-                self._log_warning(f"Failed to decode image: {str(e)}")
+        return "\n".join(parts)
+    
+    def _format_context(self, context: Dict[str, Any]) -> str:
+        """
+        Format the page context as readable text for the LLM.
         
-        return parts
+        Args:
+            context: Dictionary with page data
+        
+        Returns:
+            Formatted context string
+        """
+        lines = []
+        
+        # Basic info
+        lines.append(f"Pagina: {context.get('page', 'N/A')}")
+        lines.append(f"Asset: {context.get('asset_display', context.get('asset', 'N/A'))}")
+        lines.append(f"Granularità: {context.get('granularity', 'N/A')}")
+        
+        # Period
+        period = context.get('period', {})
+        if period:
+            lines.append(f"Periodo: {period.get('start', 'N/A')} → {period.get('end', 'N/A')}")
+            if 'total_records' in period:
+                lines.append(f"Record totali: {period['total_records']}")
+        
+        # Price statistics
+        price_stats = context.get('price_statistics', {})
+        if price_stats:
+            lines.append("\n📈 STATISTICHE PREZZO:")
+            for key, value in price_stats.items():
+                lines.append(f"  - {key}: {value}")
+        
+        # Anomalies
+        anomalies = context.get('anomalies', {})
+        if anomalies:
+            lines.append("\n⚠️ ANOMALIE RILEVATE:")
+            if 'counts' in anomalies:
+                counts = anomalies['counts']
+                lines.append(f"  - Prezzo: {counts.get('price', 0)}")
+                lines.append(f"  - Volume: {counts.get('volume', 0)}")
+                lines.append(f"  - Volatilità: {counts.get('volatility', 0)}")
+            if 'details' in anomalies and anomalies['details']:
+                lines.append("  Dettagli (ultimi 10):")
+                for a in anomalies['details'][:10]:
+                    lines.append(f"    • {a.get('date', 'N/A')}: {a.get('type', 'N/A')} (Z={a.get('zscore', 'N/A')})")
+        
+        # Z-Score details
+        zscore = context.get('zscore_details', {})
+        if zscore:
+            lines.append("\n📊 Z-SCORE ATTUALI:")
+            for key, value in zscore.items():
+                lines.append(f"  - {key}: {value}")
+        
+        # Volume statistics
+        volume_stats = context.get('volume_statistics', {})
+        if volume_stats:
+            lines.append("\n📊 STATISTICHE VOLUME:")
+            for key, value in volume_stats.items():
+                lines.append(f"  - {key}: {value}")
+        
+        # Volatility statistics
+        volatility_stats = context.get('volatility_statistics', {})
+        if volatility_stats:
+            lines.append("\n📉 STATISTICHE VOLATILITÀ:")
+            for key, value in volatility_stats.items():
+                lines.append(f"  - {key}: {value}")
+        
+        # Simulation data (realtime page)
+        simulation = context.get('simulation', {})
+        if simulation:
+            lines.append("\n⏱️ SIMULAZIONE:")
+            for key, value in simulation.items():
+                lines.append(f"  - {key}: {value}")
+        
+        # Correlations (cross-asset page)
+        correlations = context.get('correlations', {})
+        if correlations:
+            lines.append("\n🔗 CORRELAZIONI:")
+            if 'matrix' in correlations:
+                lines.append("  Matrice:")
+                for pair, corr in correlations['matrix'].items():
+                    lines.append(f"    • {pair}: {corr}")
+        
+        # Systemic events
+        systemic = context.get('systemic_events', {})
+        if systemic:
+            lines.append("\n🌐 EVENTI SISTEMICI:")
+            lines.append(f"  - Totale giorni: {systemic.get('total_days', 0)}")
+            lines.append(f"  - Soglia: {systemic.get('threshold', 3)} asset")
+            if 'events' in systemic:
+                lines.append("  Eventi recenti:")
+                for e in systemic['events'][:5]:
+                    lines.append(f"    • {e.get('date', 'N/A')}: {e.get('assets', 'N/A')}")
+        
+        # Candlestick patterns
+        candle_patterns = context.get('candlestick_patterns', {})
+        if candle_patterns:
+            lines.append("\n🕯️ PATTERN CANDLESTICK:")
+            for pattern, count in candle_patterns.items():
+                lines.append(f"  - {pattern}: {count}")
+        
+        # Chart patterns
+        chart_patterns = context.get('chart_patterns', [])
+        if chart_patterns:
+            lines.append("\n📈 PATTERN GRAFICI:")
+            for p in chart_patterns[:5]:
+                lines.append(f"  - {p.get('type', 'N/A')}: {p.get('start_date', '')} → {p.get('end_date', '')} ({p.get('signal', '')})")
+        
+        return "\n".join(lines)
     
     def _format_history(self, history: List[Dict[str, str]]) -> str:
         """
-        Format conversation history as a string for the prompt.
-        
-        Takes the last N messages (defined by GEMINI_HISTORY_LENGTH) and
-        formats them as a readable conversation.
+        Format conversation history for the prompt.
         
         Args:
-            history: List of message dictionaries with 'role' and 'content' keys
+            history: List of message dictionaries
         
         Returns:
             Formatted history string
         """
-        if not history:
-            return ""
-        
-        # Take only the last N messages
-        recent_history = history[-config.GEMINI_HISTORY_LENGTH:]
-        
-        formatted_lines = []
-        for msg in recent_history:
-            role = msg.get("role", "user")
+        lines = []
+        for msg in history:
+            role = "Utente" if msg.get("role") == "user" else "Assistente"
             content = msg.get("content", "")
-            
-            if role == "user":
-                formatted_lines.append(f"**Utente**: {content}")
-            else:
-                formatted_lines.append(f"**Assistente**: {content}")
-        
-        return "\n\n".join(formatted_lines)
-    
-    def _decode_base64_image(self, image_base64: str) -> Dict[str, Any]:
-        """
-        Decode a base64 image string into a format suitable for Gemini.
-        
-        Args:
-            image_base64: Base64-encoded PNG image string
-        
-        Returns:
-            Dictionary with image data for the Gemini API
-        """
-        # Remove data URL prefix if present
-        if "," in image_base64:
-            image_base64 = image_base64.split(",")[1]
-        
-        # Decode base64 to bytes
-        image_bytes = base64.b64decode(image_base64)
-        
-        # Return in format expected by Gemini
-        return {
-            "mime_type": "image/png",
-            "data": image_bytes
-        }
+            # Truncate long messages
+            if len(content) > 300:
+                content = content[:300] + "..."
+            lines.append(f"{role}: {content}")
+        return "\n".join(lines)
     
     def _get_mock_response(self, question: str) -> str:
         """
-        Generate a mock response when running without an API key.
-        
-        Useful for testing the UI without consuming API quota.
+        Get a mock response when API is not available.
         
         Args:
             question: The user's question
         
         Returns:
-            Mock response string with setup instructions
+            Mock response string
         """
-        return config.GEMINI_MOCK_RESPONSE.format(question=question)
+        mock_template = getattr(config, 'GEMINI_MOCK_RESPONSE', MOCK_RESPONSE) if config else MOCK_RESPONSE
+        return mock_template.format(question=question)
     
-    # =========================================================================
-    # CONTEXT BUILDING
-    # =========================================================================
-    
-    @staticmethod
-    def get_system_prompt() -> str:
+    def _handle_error(self, error: Exception) -> str:
         """
-        Get the system prompt that defines the assistant's behavior.
-        
-        Returns:
-            The system prompt string from configuration
-        """
-        return config.GEMINI_SYSTEM_PROMPT
-    
-    @staticmethod
-    def build_page_context(context_dict: Dict[str, Any]) -> str:
-        """
-        Build a formatted context string from a dictionary.
-        
-        Converts the page context dictionary into a human-readable string
-        that helps Gemini understand the current state of the dashboard.
+        Handle API errors with user-friendly messages.
         
         Args:
-            context_dict: Dictionary with page-specific information
-                Expected keys vary by page:
-                - "page": Current page name
-                - "asset": Selected asset (if applicable)
-                - "granularity": Data granularity
-                - "date_range": Selected date range
-                - "anomalies_count": Number of detected anomalies
-                - "patterns_found": Detected patterns (for pattern page)
-                - etc.
+            error: The exception that occurred
         
         Returns:
-            Formatted context string
-        
-        Example:
-            >>> context = {"page": "Single Asset", "asset": "gold", "anomalies_count": 5}
-            >>> print(GeminiAssistant.build_page_context(context))
-            - **Pagina**: Single Asset
-            - **Asset**: gold
-            - **Anomalies Count**: 5
+            User-friendly error message
         """
-        if not context_dict:
-            return "Nessun contesto disponibile."
+        error_str = str(error).lower()
         
-        lines = []
+        if "quota" in error_str or "rate" in error_str:
+            return "⚠️ **Limite API raggiunto**\n\nHai esaurito le richieste gratuite. Attendi qualche minuto o verifica la tua quota su Google AI Studio."
         
-        # Define friendly names for context keys (Italian)
-        key_names = {
-            "page": "Pagina",
-            "asset": "Asset selezionato",
-            "asset_display": "Asset",
-            "granularity": "Granularità",
-            "date_range": "Periodo",
-            "start_date": "Data inizio",
-            "end_date": "Data fine",
-            "zscore_threshold": "Soglia Z-score",
-            "anomalies_count": "Anomalie rilevate",
-            "anomalies_price": "Anomalie prezzo",
-            "anomalies_volume": "Anomalie volume",
-            "anomalies_volatility": "Anomalie volatilità",
-            "window_size": "Finestra sliding window",
-            "simulation_progress": "Progresso simulazione",
-            "correlation_window": "Finestra correlazione",
-            "systemic_threshold": "Soglia eventi sistemici",
-            "systemic_events": "Eventi sistemici rilevati",
-            "selected_pair": "Coppia selezionata",
-            "patterns_doji": "Pattern Doji",
-            "patterns_hammer": "Pattern Hammer",
-            "patterns_engulfing_bullish": "Pattern Engulfing Bullish",
-            "patterns_engulfing_bearish": "Pattern Engulfing Bearish",
-            "chart_patterns_count": "Chart pattern rilevati",
-            "tolerance": "Tolleranza pattern",
-            "prominence": "Prominenza picchi"
-        }
+        if "invalid" in error_str and "key" in error_str:
+            return "❌ **API Key non valida**\n\nVerifica che la chiave GEMINI_API_KEY sia corretta."
         
-        for key, value in context_dict.items():
-            # Get friendly name or use the key with title case
-            friendly_name = key_names.get(key, key.replace("_", " ").title())
-            
-            # Format value based on type
-            if isinstance(value, dict):
-                # Nested dictionary: format as sub-items
-                value_str = ", ".join(f"{k}: {v}" for k, v in value.items())
-            elif isinstance(value, (list, tuple)):
-                value_str = ", ".join(str(v) for v in value)
-            elif isinstance(value, float):
-                value_str = f"{value:.2f}"
-            else:
-                value_str = str(value)
-            
-            lines.append(f"- **{friendly_name}**: {value_str}")
+        if "not found" in error_str or "404" in error_str:
+            return f"❌ **Modello non trovato**\n\nIl modello '{self.model_name}' non è disponibile. Verifica il nome in config.py."
         
-        return "\n".join(lines)
+        # Generic error
+        return f"❌ **Errore API**\n\n```\n{str(error)[:200]}\n```\n\nRiprova tra qualche secondo."
     
     # =========================================================================
     # HISTORY MANAGEMENT
@@ -444,183 +424,83 @@ class GeminiAssistant:
         Add a message to the conversation history.
         
         Args:
-            role: Either "user" or "assistant"
+            role: Either 'user' or 'assistant'
             content: The message content
         """
-        self.history.append({
-            "role": role,
-            "content": content
-        })
+        self.history.append({"role": role, "content": content})
         
-        # Trim history if it exceeds the maximum length
-        max_length = config.GEMINI_HISTORY_LENGTH
-        if len(self.history) > max_length:
-            self.history = self.history[-max_length:]
+        # Trim history if too long
+        if len(self.history) > self.max_history:
+            self.history = self.history[-self.max_history:]
     
     def clear_history(self) -> None:
         """Clear the conversation history."""
         self.history = []
     
     def get_history(self) -> List[Dict[str, str]]:
-        """
-        Get the current conversation history.
-        
-        Returns:
-            List of message dictionaries
-        """
+        """Get a copy of the conversation history."""
         return self.history.copy()
     
     def set_history(self, history: List[Dict[str, str]]) -> None:
         """
-        Set the conversation history (e.g., from session state).
+        Set the conversation history.
         
         Args:
             history: List of message dictionaries
         """
-        self.history = history.copy() if history else []
-    
-    # =========================================================================
-    # UTILITY METHODS
-    # =========================================================================
-    
-    @staticmethod
-    def _log_info(message: str) -> None:
-        """Log an informational message."""
-        print(f"[GeminiAssistant INFO] {message}")
-    
-    @staticmethod
-    def _log_warning(message: str) -> None:
-        """Log a warning message."""
-        print(f"[GeminiAssistant WARNING] {message}")
+        self.history = history[-self.max_history:] if history else []
 
 
 # =============================================================================
-# CHART CAPTURE UTILITIES
+# SINGLETON INSTANCE
 # =============================================================================
 
-def capture_plotly_figure(fig, format: str = "png", scale: int = 2) -> Optional[str]:
+_assistant_instance: Optional[GeminiAssistant] = None
+
+
+def get_assistant() -> GeminiAssistant:
     """
-    Capture a Plotly figure as a base64-encoded image.
-    
-    Converts a Plotly figure to a PNG image and encodes it as base64,
-    ready to be sent to Gemini for visual analysis.
-    
-    Args:
-        fig: Plotly figure object
-        format: Image format (default: "png")
-        scale: Image scale factor for higher resolution (default: 2)
+    Get the singleton GeminiAssistant instance.
     
     Returns:
-        Base64-encoded image string, or None if capture fails
-    
-    Example:
-        >>> import plotly.graph_objects as go
-        >>> fig = go.Figure(data=go.Scatter(x=[1, 2, 3], y=[1, 2, 3]))
-        >>> image_b64 = capture_plotly_figure(fig)
-        >>> if image_b64:
-        ...     response = assistant.send_message("Describe this chart", image_base64=image_b64)
+        The global GeminiAssistant instance
     """
-    try:
-        # Convert figure to bytes
-        image_bytes = fig.to_image(format=format, scale=scale)
-        
-        # Encode as base64
-        image_base64 = base64.b64encode(image_bytes).decode("utf-8")
-        
-        return image_base64
-        
-    except Exception as e:
-        print(f"[GeminiAssistant WARNING] Failed to capture figure: {str(e)}")
-        print("Make sure 'kaleido' is installed: pip install kaleido")
-        return None
+    global _assistant_instance
+    if _assistant_instance is None:
+        _assistant_instance = GeminiAssistant()
+    return _assistant_instance
 
 
 def is_gemini_available() -> bool:
     """
-    Check if Gemini is properly configured and available.
+    Check if Gemini API is properly configured and available.
     
     Returns:
-        True if API key is set and library is available, False otherwise
+        True if API is ready, False otherwise
     """
-    if not GENAI_AVAILABLE:
-        return False
-    
-    api_key = os.environ.get(config.GEMINI_API_KEY_ENV)
-    return bool(api_key)
+    assistant = get_assistant()
+    return assistant.api_key_set and assistant.model is not None
 
 
 def get_gemini_status() -> Dict[str, Any]:
     """
     Get detailed status information about Gemini configuration.
     
-    Useful for debugging and displaying status in the UI.
-    
     Returns:
-        Dictionary with status information:
-        - library_installed: Whether google-generativeai is installed
-        - api_key_set: Whether the API key environment variable is set
-        - model: The configured model name
-        - is_available: Whether Gemini is fully available
+        Dictionary with status details
     """
-    api_key = os.environ.get(config.GEMINI_API_KEY_ENV, "")
-    
+    assistant = get_assistant()
     return {
         "library_installed": GENAI_AVAILABLE,
-        "api_key_set": bool(api_key),
-        "api_key_preview": f"{api_key[:8]}..." if len(api_key) > 8 else "(not set)",
-        "model": config.GEMINI_MODEL,
-        "max_tokens": config.GEMINI_MAX_TOKENS,
-        "temperature": config.GEMINI_TEMPERATURE,
-        "history_length": config.GEMINI_HISTORY_LENGTH,
-        "is_available": GENAI_AVAILABLE and bool(api_key)
+        "api_key_set": assistant.api_key_set,
+        "model": assistant.model_name,
+        "available": is_gemini_available(),
     }
 
 
 # =============================================================================
-# CONVENIENCE FUNCTIONS
+# CONTEXT BUILDERS
 # =============================================================================
-
-# Global assistant instance (lazy initialization)
-_assistant_instance: Optional[GeminiAssistant] = None
-
-
-def get_assistant() -> GeminiAssistant:
-    """
-    Get the global GeminiAssistant instance.
-    
-    Uses lazy initialization to create the assistant only when first needed.
-    Subsequent calls return the same instance.
-    
-    Returns:
-        GeminiAssistant instance
-    
-    Example:
-        >>> assistant = get_assistant()
-        >>> response = assistant.send_message("Hello!")
-    """
-    global _assistant_instance
-    
-    if _assistant_instance is None:
-        _assistant_instance = GeminiAssistant()
-    
-    return _assistant_instance
-
-
-def reset_assistant() -> None:
-    """
-    Reset the global assistant instance.
-    
-    Forces re-initialization on next get_assistant() call.
-    Useful if API key is changed during runtime.
-    """
-    global _assistant_instance
-    _assistant_instance = None
-
-
-# =============================================================================
-# PAGE CONTEXT BUILDERS
-# =============================================================================
-# These functions help build page-specific context dictionaries
 
 def build_single_asset_context(
     asset: str,
@@ -628,110 +508,171 @@ def build_single_asset_context(
     granularity: str,
     start_date: str,
     end_date: str,
-    zscore_threshold: float,
-    anomalies_price: int,
-    anomalies_volume: int,
-    anomalies_volatility: int
+    total_records: int,
+    price_stats: Dict[str, Any],
+    anomaly_counts: Dict[str, int],
+    anomaly_details: List[Dict[str, Any]],
+    zscore_current: Optional[Dict[str, float]] = None,
+    volume_stats: Optional[Dict[str, Any]] = None,
+    volatility_stats: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
-    Build context dictionary for the Single Asset Analysis page.
+    Build comprehensive context for the Single Asset Analysis page.
     
     Args:
-        asset: Asset key (e.g., "sp500")
-        asset_display: Display name (e.g., "S&P 500")
-        granularity: Data granularity ("minute", "hourly", "daily")
-        start_date: Start of date range
-        end_date: End of date range
-        zscore_threshold: Current Z-score threshold
-        anomalies_price: Count of price anomalies
-        anomalies_volume: Count of volume anomalies
-        anomalies_volatility: Count of volatility anomalies
+        asset: Internal asset key
+        asset_display: Display name of the asset
+        granularity: Data granularity (minute/hourly/daily)
+        start_date: Start date of the analysis period
+        end_date: End date of the analysis period
+        total_records: Total number of data points
+        price_stats: Price statistics dictionary
+        anomaly_counts: Dictionary with anomaly counts by type
+        anomaly_details: List of anomaly detail dictionaries
+        zscore_current: Current Z-scores (optional)
+        volume_stats: Volume statistics (optional)
+        volatility_stats: Volatility statistics (optional)
     
     Returns:
-        Context dictionary
+        Complete context dictionary
     """
-    return {
+    context = {
         "page": "Single Asset Analysis",
         "asset": asset,
         "asset_display": asset_display,
         "granularity": granularity,
-        "date_range": f"{start_date} → {end_date}",
-        "zscore_threshold": zscore_threshold,
-        "anomalies_price": anomalies_price,
-        "anomalies_volume": anomalies_volume,
-        "anomalies_volatility": anomalies_volatility,
-        "anomalies_count": anomalies_price + anomalies_volume + anomalies_volatility
+        "period": {
+            "start": start_date,
+            "end": end_date,
+            "total_records": total_records
+        },
+        "price_statistics": price_stats,
+        "anomalies": {
+            "counts": anomaly_counts,
+            "details": anomaly_details
+        }
     }
+    
+    if zscore_current:
+        context["zscore_details"] = zscore_current
+    
+    if volume_stats:
+        context["volume_statistics"] = volume_stats
+    
+    if volatility_stats:
+        context["volatility_statistics"] = volatility_stats
+    
+    return context
 
 
 def build_realtime_context(
     asset: str,
     asset_display: str,
-    selected_day: str,
+    simulation_day: str,
     window_size: int,
     zscore_threshold: float,
-    simulation_progress: float,
-    anomalies_found: int
+    progress_pct: float,
+    points_streamed: int,
+    total_points: int,
+    anomalies_found: int,
+    anomaly_list: List[Dict[str, Any]],
+    current_price: Optional[float] = None,
+    current_zscore: Optional[float] = None,
+    window_stats: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
-    Build context dictionary for the Real-time IoT Simulation page.
+    Build context for the Real-time IoT Simulation page.
     
     Args:
-        asset: Asset key
+        asset: Internal asset key
         asset_display: Display name
-        selected_day: The day being simulated
+        simulation_day: The day being simulated
         window_size: Sliding window size
-        zscore_threshold: Current Z-score threshold
-        simulation_progress: Progress percentage (0-100)
-        anomalies_found: Number of anomalies detected so far
+        zscore_threshold: Anomaly detection threshold
+        progress_pct: Simulation progress percentage
+        points_streamed: Number of points processed
+        total_points: Total points in the day
+        anomalies_found: Count of anomalies detected
+        anomaly_list: List of anomaly details
+        current_price: Current price (optional)
+        current_zscore: Current Z-score (optional)
+        window_stats: Window statistics (optional)
     
     Returns:
-        Context dictionary
+        Complete context dictionary
     """
-    return {
+    context = {
         "page": "Real-time IoT Simulation",
         "asset": asset,
         "asset_display": asset_display,
-        "selected_day": selected_day,
-        "window_size": window_size,
-        "zscore_threshold": zscore_threshold,
-        "simulation_progress": f"{simulation_progress:.1f}%",
-        "anomalies_found": anomalies_found
+        "granularity": "minute",
+        "period": {
+            "day": simulation_day,
+        },
+        "simulation": {
+            "window_size": window_size,
+            "zscore_threshold": zscore_threshold,
+            "progress_pct": f"{progress_pct:.1f}%",
+            "points_streamed": points_streamed,
+            "total_points": total_points,
+            "current_price": f"${current_price:.2f}" if current_price else "N/A",
+            "current_zscore": f"{current_zscore:.2f}σ" if current_zscore else "N/A"
+        },
+        "realtime_anomalies": anomaly_list,
+        "anomalies": {
+            "counts": {"total": anomalies_found},
+            "details": anomaly_list[:10]
+        }
     }
+    
+    if window_stats:
+        context["window_statistics"] = window_stats
+    
+    return context
 
 
 def build_cross_asset_context(
     start_date: str,
     end_date: str,
-    correlation_window: int,
-    systemic_threshold: int,
-    systemic_events: int,
-    selected_pair: Optional[str] = None
+    correlation_matrix: Dict[str, float],
+    systemic_events: Dict[str, Any],
+    pair_name: Optional[str] = None,
+    pair_analysis: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
-    Build context dictionary for the Cross-Asset Analysis page.
+    Build context for the Cross-Asset Analysis page.
     
     Args:
-        start_date: Start of date range
-        end_date: End of date range
-        correlation_window: Rolling correlation window size
-        systemic_threshold: Threshold for systemic events
-        systemic_events: Number of systemic events detected
-        selected_pair: Currently selected asset pair (if any)
+        start_date: Start date
+        end_date: End date
+        correlation_matrix: Dictionary of asset pair correlations
+        systemic_events: Systemic event statistics
+        pair_name: Selected pair name (optional)
+        pair_analysis: Detailed pair analysis (optional)
     
     Returns:
-        Context dictionary
+        Complete context dictionary
     """
     context = {
         "page": "Cross-Asset Analysis",
-        "date_range": f"{start_date} → {end_date}",
-        "correlation_window": f"{correlation_window} giorni",
-        "systemic_threshold": f"{systemic_threshold} asset",
+        "asset": "Multiple",
+        "asset_display": "All Assets",
+        "granularity": "daily",
+        "period": {
+            "start": start_date,
+            "end": end_date
+        },
+        "correlations": {
+            "matrix": correlation_matrix
+        },
         "systemic_events": systemic_events
     }
     
-    if selected_pair:
-        context["selected_pair"] = selected_pair
+    if pair_name and pair_analysis:
+        context["pair_analysis"] = {
+            "pair": pair_name,
+            **pair_analysis
+        }
     
     return context
 
@@ -741,43 +682,39 @@ def build_pattern_context(
     asset_display: str,
     start_date: str,
     end_date: str,
-    tolerance: float,
-    prominence: float,
-    patterns_doji: int,
-    patterns_hammer: int,
-    patterns_engulfing_bullish: int,
-    patterns_engulfing_bearish: int,
-    chart_patterns_count: int
+    candlestick_counts: Dict[str, int],
+    chart_patterns: List[Dict[str, Any]],
+    pattern_distribution: Optional[Dict[str, int]] = None
 ) -> Dict[str, Any]:
     """
-    Build context dictionary for the Pattern Recognition page.
+    Build context for the Pattern Recognition page.
     
     Args:
-        asset: Asset key
+        asset: Internal asset key
         asset_display: Display name
-        start_date: Start of date range
-        end_date: End of date range
-        tolerance: Price tolerance percentage
-        prominence: Peak prominence percentage
-        patterns_doji: Count of Doji patterns
-        patterns_hammer: Count of Hammer patterns
-        patterns_engulfing_bullish: Count of Bullish Engulfing patterns
-        patterns_engulfing_bearish: Count of Bearish Engulfing patterns
-        chart_patterns_count: Total count of chart patterns
+        start_date: Start date
+        end_date: End date
+        candlestick_counts: Counts of each candlestick pattern
+        chart_patterns: List of detected chart patterns
+        pattern_distribution: Pattern frequency distribution (optional)
     
     Returns:
-        Context dictionary
+        Complete context dictionary
     """
-    return {
+    context = {
         "page": "Pattern Recognition",
         "asset": asset,
         "asset_display": asset_display,
-        "date_range": f"{start_date} → {end_date}",
-        "tolerance": f"{tolerance}%",
-        "prominence": f"{prominence}%",
-        "patterns_doji": patterns_doji,
-        "patterns_hammer": patterns_hammer,
-        "patterns_engulfing_bullish": patterns_engulfing_bullish,
-        "patterns_engulfing_bearish": patterns_engulfing_bearish,
-        "chart_patterns_count": chart_patterns_count
+        "granularity": "daily",
+        "period": {
+            "start": start_date,
+            "end": end_date
+        },
+        "candlestick_patterns": candlestick_counts,
+        "chart_patterns": chart_patterns
     }
+    
+    if pattern_distribution:
+        context["pattern_distribution"] = pattern_distribution
+    
+    return context

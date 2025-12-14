@@ -24,6 +24,14 @@ import os
 import json
 from typing import Any, Dict, List, Optional
 
+# Try to import python-dotenv for .env file support
+try:
+    from dotenv import load_dotenv
+    DOTENV_AVAILABLE = True
+except ImportError:
+    DOTENV_AVAILABLE = False
+    load_dotenv = None
+
 # Try to import config
 try:
     import config
@@ -145,6 +153,10 @@ class GeminiAssistant:
         """Initialize the Gemini API with the configured API key."""
         if not GENAI_AVAILABLE:
             return
+        
+        # Load .env file if available
+        if DOTENV_AVAILABLE:
+            load_dotenv()
         
         api_key = os.environ.get('GEMINI_API_KEY', '')
         

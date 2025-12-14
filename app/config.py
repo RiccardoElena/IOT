@@ -152,7 +152,7 @@ MARKER_SIZE_ANOMALY = 12
 # Model settings
 # Using Gemini 1.5 Flash for speed and generous free tier
 # Free tier: 15 RPM, 1M TPM, 1500 RPD
-GEMINI_MODEL = "gemini-1.5-flash"
+GEMINI_MODEL = "gemini-2.5-flash-lite"
 
 # Generation parameters
 GEMINI_MAX_TOKENS = 1024        # Maximum tokens in response

@@ -437,7 +437,7 @@ def render_chat_messages(page_type: str = "single_asset") -> None:
                     if msg.get("data_included"):
                         st.caption(f"📎 {', '.join(msg['data_included'])}")
             else:
-                with st.chat_message("assistant", avatar=""):
+                with st.chat_message("assistant", avatar="🤖"):
                     st.markdown(content)
     
     # Inject scroll script via iframe

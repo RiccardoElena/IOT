@@ -6,6 +6,8 @@ Change values here to adapt the project to different datasets.
 """
 
 import os
+from dotenv import load_dotenv
+load_dotenv()
 
 # =============================================================================
 # ASSET CONFIGURATION
@@ -38,7 +40,8 @@ FILE_NAMES = {
 
 # Base directory for all data files (relative to config.py location)
 _CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_BASE_PATH = os.path.join(_CONFIG_DIR, "..", "data")
+DEFAULT_DATA_BASE_PATH = os.path.join(_CONFIG_DIR, "..", "data")
+DATA_BASE_PATH = os.getenv("DATA_BASE_PATH", DEFAULT_DATA_BASE_PATH)
 DATA_BASE_PATH = os.path.abspath(DATA_BASE_PATH)  # Convert to absolute path
 
 # Subdirectories for each granularity

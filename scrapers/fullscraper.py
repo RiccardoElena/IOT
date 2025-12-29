@@ -6,8 +6,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Dict, Any
 from massive import RESTClient
+from dotenv import load_dotenv
+import os
 
-API_KEY = "***REMOVED***"
+load_dotenv()
+API_KEY = os.getenv("API_KEY")
 
 TICKERS = [
     {"ticker": "SPY", "name": "SP500"},
@@ -29,7 +32,7 @@ RATE_LIMIT_DELAY = 12
 MAX_RETRIES = 3
 RETRY_DELAY = 5
 
-OUTPUT_DIR = Path("stock_data_2")
+OUTPUT_DIR = Path(os.getenv("BASE_PATH", "./data/"))
 CSV_DIR = OUTPUT_DIR / "csv"
 JSON_DIR = OUTPUT_DIR / "json"
 api_call_counter = 0

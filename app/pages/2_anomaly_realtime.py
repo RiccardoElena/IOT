@@ -737,7 +737,7 @@ with col5:
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### 📋 Anomaly Log")
+st.markdown("### Anomaly Log")
 
 log_df = render_anomaly_log(anomalies, current_idx)
 if log_df is not None:
@@ -761,7 +761,7 @@ if st.session_state.sim_running and not st.session_state.sim_paused and not st.s
 
 if st.session_state.sim_complete:
     st.markdown("---")
-    st.markdown("### 🔍 Post-Simulation Analysis")
+    st.markdown("### Post-Simulation Analysis")
     st.toast("Simulation complete!", icon="✅")
     
     col1, col2, col3 = st.columns(3)

@@ -133,7 +133,7 @@ HAMMER_SHADOW_RATIO = 2.0
 
 # Page configuration
 PAGE_TITLE = "IoT Financial Analytics"
-PAGE_ICON = "📊"
+PAGE_ICON = ""
 LAYOUT = "wide"
 
 # Color scheme for anomalies
@@ -249,12 +249,12 @@ Guarda il grafico Z-score sotto per vedere l'entità della deviazione."
 """
 
 # Chat UI configuration
-GEMINI_CHAT_TITLE = "✨ Gemini Assistant"
+GEMINI_CHAT_TITLE = "Gemini Assistant"
 GEMINI_CHAT_PLACEHOLDER = "Scrivi una domanda..."
 GEMINI_CHAT_WIDTH = 400  # Width in pixels for the chat sidebar
 
 # Mock mode message (shown when API key is not configured)
-GEMINI_MOCK_RESPONSE = """**[MOCK MODE]** 🔧
+GEMINI_MOCK_RESPONSE = """**[MOCK MODE]** 
 
 API key non configurata. Questa è una risposta di test per verificare l'interfaccia.
 

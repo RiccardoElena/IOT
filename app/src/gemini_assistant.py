@@ -94,7 +94,7 @@ COSA NON FARE:
 Sei pronto ad aiutare con l'analisi dei dati finanziari!"""
 
 # Mock response for testing without API key
-MOCK_RESPONSE = """🔧 **Modalità Demo**
+MOCK_RESPONSE = """**Modalità Demo**
 
 Gemini non è configurato. Per attivare l'assistente:
 
@@ -288,7 +288,7 @@ class GeminiAssistant:
         # Price statistics
         price_stats = context.get('price_statistics', {})
         if price_stats:
-            lines.append("\n📈 STATISTICHE PREZZO:")
+            lines.append("\nSTATISTICHE PREZZO:")
             for key, value in price_stats.items():
                 lines.append(f"  - {key}: {value}")
         
@@ -309,28 +309,28 @@ class GeminiAssistant:
         # Z-Score details
         zscore = context.get('zscore_details', {})
         if zscore:
-            lines.append("\n📊 Z-SCORE ATTUALI:")
+            lines.append("\nZ-SCORE ATTUALI:")
             for key, value in zscore.items():
                 lines.append(f"  - {key}: {value}")
         
         # Volume statistics
         volume_stats = context.get('volume_statistics', {})
         if volume_stats:
-            lines.append("\n📊 STATISTICHE VOLUME:")
+            lines.append("\nSTATISTICHE VOLUME:")
             for key, value in volume_stats.items():
                 lines.append(f"  - {key}: {value}")
         
         # Volatility statistics
         volatility_stats = context.get('volatility_statistics', {})
         if volatility_stats:
-            lines.append("\n📉 STATISTICHE VOLATILITÀ:")
+            lines.append("\nSTATISTICHE VOLATILITÀ:")
             for key, value in volatility_stats.items():
                 lines.append(f"  - {key}: {value}")
         
         # Simulation data (realtime page)
         simulation = context.get('simulation', {})
         if simulation:
-            lines.append("\n⏱️ SIMULAZIONE:")
+            lines.append("\nSIMULAZIONE:")
             for key, value in simulation.items():
                 lines.append(f"  - {key}: {value}")
         
@@ -364,7 +364,7 @@ class GeminiAssistant:
         # Chart patterns
         chart_patterns = context.get('chart_patterns', [])
         if chart_patterns:
-            lines.append("\n📈 PATTERN GRAFICI:")
+            lines.append("\nPATTERN GRAFICI:")
             for p in chart_patterns[:5]:
                 lines.append(f"  - {p.get('type', 'N/A')}: {p.get('start_date', '')} → {p.get('end_date', '')} ({p.get('signal', '')})")
         

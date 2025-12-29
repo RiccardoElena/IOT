@@ -137,7 +137,7 @@ granularity_options = {key: get_granularity_display_name(key) for key in config.
 # =============================================================================
 
 with st.sidebar:
-    st.header("⚙️ Controls")
+    st.header("Controls")
     
     # Asset selection
     selected_asset = st.selectbox(
@@ -363,7 +363,7 @@ if "selected_zoom_range" not in st.session_state:
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### 📈 Price, Volume & Volatility")
+st.markdown("### Price, Volume & Volatility")
 
 # Create subplot figure
 fig_main = make_subplots(
@@ -503,7 +503,7 @@ if len(anomaly_df) > 0:
     col1, col2 = st.columns([4, 1])
     
     with col1:
-        st.markdown("#### 🎯 Jump to Anomaly")
+        st.markdown("#### Jump to Anomaly")
     
     with col2:
         if st.button("🔄 Reset Zoom", use_container_width=True):
@@ -549,7 +549,7 @@ if len(anomaly_df) > 0:
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### 📊 Z-Score Analysis")
+st.markdown("### Z-Score Analysis")
 
 thresholds = get_threshold_lines(zscore_threshold)
 
@@ -615,7 +615,7 @@ def create_zscore_chart(data: pd.Series, chart_title: str, anomaly_mask: pd.Seri
 
 
 # Create tabs for Z-score charts
-tab1, tab2, tab3 = st.tabs(["📈 Price Z-Score", "📊 Volume Z-Score", "📉 Volatility Z-Score"])
+tab1, tab2, tab3 = st.tabs(["Price Z-Score", "Volume Z-Score", "Volatility Z-Score"])
 
 with tab1:
     fig_zscore_price = create_zscore_chart(
@@ -647,7 +647,7 @@ with tab3:
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### 📋 Summary")
+st.markdown("### Summary")
 
 col1, col2, col3, col4 = st.columns(4)
 
@@ -666,7 +666,7 @@ with col4:
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### 🔍 Anomaly Details")
+st.markdown("### Anomaly Details")
 
 if len(anomaly_df) > 0:
     anomaly_df_display = anomaly_df.copy()

@@ -13,7 +13,7 @@ A comprehensive Streamlit application for analyzing financial market data using 
 
 ## Features
 
-### 📈 Page 1: Single Asset Analysis
+### Page 1: Single Asset Analysis
 
 - Interactive candlestick charts with OHLC data
 - Volume analysis with anomaly highlighting

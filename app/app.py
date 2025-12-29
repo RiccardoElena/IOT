@@ -69,7 +69,7 @@ with st.sidebar:
     st.markdown("---")
     
     # Navigation info
-    st.markdown("### 📑 Pages")
+    st.markdown("### Pages")
     st.markdown("""
     1. **Single Asset Analysis**  
        Explore one asset with anomaly detection
@@ -111,7 +111,7 @@ with st.sidebar:
 # MAIN PAGE CONTENT
 # =============================================================================
 
-st.title("📊 IoT Financial Data Analytics")
+st.title(" IoT Financial Data Analytics")
 
 st.markdown("""
 Welcome to the Financial Data Analytics Dashboard. This application treats 
@@ -124,26 +124,26 @@ col1, col2, col3 = st.columns(3)
 
 with col1:
     st.info("""
-    **📈 5 Assets**  
+    **5 Assets**  
     S&P 500, Gold, Oil, USD, Bitcoin
     """)
 
 with col2:
     st.info("""
-    **⏱️ 3 Granularities**  
+    **3 Granularities**  
     Minute, Hourly, Daily
     """)
 
 with col3:
     st.info("""
-    **🔍 2 Years**  
+    **2 Years**  
     Historical data coverage
     """)
 
 st.markdown("---")
 
 # Quick start guide
-st.subheader("🚀 Quick Start")
+st.subheader("Quick Start")
 
 st.markdown("""
 1. **Navigate** using the sidebar menu (pages appear after adding them to `/pages` folder)
@@ -158,7 +158,7 @@ Use the sidebar expanders to learn about each technique.
 st.markdown("---")
 
 # Data loading test section
-st.subheader("🔧 Data Status")
+st.subheader("Data Status")
 
 # Try to load data to verify setup
 try:
@@ -172,7 +172,7 @@ try:
     st.toast(f"Data loaded successfully!", icon="✅")
     
     # Show sample
-    with st.expander("📋 Preview data"):
+    with st.expander("Preview data"):
         st.dataframe(df.head(10), width='stretch')
         
 except FileNotFoundError as e:

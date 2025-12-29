@@ -71,7 +71,7 @@ title("🔮 Pattern Recognition",
 # =============================================================================
 
 with st.sidebar:
-    st.header("⚙️ Controls")
+    st.header(" Controls")
     
     asset_options = {key: get_asset_display_name(key) for key in config.ASSETS.keys()}
     selected_asset = st.selectbox(
@@ -80,7 +80,7 @@ with st.sidebar:
         format_func=lambda x: asset_options[x]
     )
     
-    st.info("📊 Using **Daily** data for pattern recognition")
+    st.info("Using **Daily** data for pattern recognition")
     
     st.markdown("---")
     st.subheader("🎛️ Pattern Calibration")
@@ -238,7 +238,7 @@ with st.sidebar:
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### 📊 Pattern Summary")
+st.markdown("### Pattern Summary")
 
 
 col1, col2, col3, col4, col5 = st.columns(5)
@@ -375,7 +375,7 @@ else:
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### 📈 Chart Patterns")
+st.markdown("### Chart Patterns")
 st.markdown("*Click on legend items to show/hide pattern regions*")
 
 if len(chart_patterns) > 0:
@@ -532,7 +532,7 @@ else:
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### 📊 Pattern Distribution")
+st.markdown("### Pattern Distribution")
 
 all_pattern_counts = {
     "Doji": pattern_summary["doji"],

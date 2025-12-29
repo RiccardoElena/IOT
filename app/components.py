@@ -75,7 +75,7 @@ def footer(page_title: str) -> None:
 DATA_OPTIONS = {
     "single_asset": {
         "price_stats": {
-            "label": "📈 Statistiche prezzo",
+            "label": "Statistiche prezzo",
             "description": "Min, max, current, % change",
             "default": True
         },
@@ -85,24 +85,24 @@ DATA_OPTIONS = {
             "default": True
         },
         "zscore_details": {
-            "label": "📊 Dettagli Z-Score",
+            "label": "Dettagli Z-Score",
             "description": "Current Z-scores for price, volume, volatility",
             "default": False
         },
         "volume_stats": {
-            "label": "📊 Statistiche volume",
+            "label": "Statistiche volume",
             "description": "Volume statistics and trends",
             "default": False
         },
         "volatility_stats": {
-            "label": "📉 Statistiche volatilità",
+            "label": "Statistiche volatilità",
             "description": "Volatility range and patterns",
             "default": False
         }
     },
     "realtime": {
         "simulation_progress": {
-            "label": "⏱️ Progresso simulazione",
+            "label": "Progresso simulazione",
             "description": "Current progress and points streamed",
             "default": True
         },
@@ -112,7 +112,7 @@ DATA_OPTIONS = {
             "default": True
         },
         "window_stats": {
-            "label": "📊 Statistiche finestra",
+            "label": "Statistiche finestra",
             "description": "Rolling window statistics",
             "default": False
         }
@@ -129,7 +129,7 @@ DATA_OPTIONS = {
             "default": True
         },
         "pair_analysis": {
-            "label": "📊 Analisi coppia",
+            "label": "Analisi coppia",
             "description": "Selected pair detailed statistics",
             "default": False
         }
@@ -141,12 +141,12 @@ DATA_OPTIONS = {
             "default": True
         },
         "chart_patterns": {
-            "label": "📈 Pattern grafici",
+            "label": "Pattern grafici",
             "description": "Double Top/Bottom, H&S, Cup & Handle",
             "default": True
         },
         "pattern_distribution": {
-            "label": "📊 Distribuzione",
+            "label": "Distribuzione",
             "description": "Pattern frequency and timeline",
             "default": False
         }
@@ -328,19 +328,19 @@ def inject_auto_scroll_js(anchor_id: str) -> None:
 
 def render_gemini_header() -> None:
     """Render the Gemini chat header with status indicator."""
-    col1, col2 = st.columns([4, 1])
+    # col1, col2 = st.columns([4, 1])
     
-    with col1:
-        st.markdown("### ✨ Gemini Assistant")
+    # with col1:
+    st.markdown("### Gemini Assistant")
     
-    with col2:
-        if GEMINI_MODULE_AVAILABLE:
-            if is_gemini_available():
-                st.markdown("🟢")
-            else:
-                st.markdown("🟡")
-        else:
-            st.markdown("🔴")
+    # with col2:
+    #     if GEMINI_MODULE_AVAILABLE:
+    #         if is_gemini_available():
+    #             st.markdown("🟢")
+    #         else:
+    #             st.markdown("🟡")
+    #     else:
+    #         st.markdown("🔴")
 
 
 def render_status_badge() -> None:
@@ -354,7 +354,7 @@ def render_status_badge() -> None:
     if not status["library_installed"]:
         st.caption("❌ Library missing")
     elif not status["api_key_set"]:
-        st.caption("🔧 Mock mode - set API key")
+        st.caption("Mock mode - set API key")
     else:
         st.caption(f"✅ {status['model']}")
 
@@ -368,7 +368,7 @@ def render_welcome_message(page_type: str = "single_asset") -> None:
     """
     st.markdown("""
     <div style='text-align: center; padding: 10px; color: #666;'>
-        <div style='font-size: 24px; margin-bottom: 8px;'>✨</div>
+        <div style='font-size: 24px; margin-bottom: 8px;'></div>
         <div style='font-size: 13px;'>
             Chiedimi qualsiasi cosa sui dati!<br>
             Seleziona i dati da includere nel menu sotto.
@@ -437,7 +437,7 @@ def render_chat_messages(page_type: str = "single_asset") -> None:
                     if msg.get("data_included"):
                         st.caption(f"📎 {', '.join(msg['data_included'])}")
             else:
-                with st.chat_message("assistant", avatar="✨"):
+                with st.chat_message("assistant", avatar=""):
                     st.markdown(content)
     
     # Inject scroll script via iframe
@@ -543,7 +543,7 @@ def _process_user_message(
     
     assistant = get_assistant()
     
-    with st.spinner("✨ Gemini sta pensando..."):
+    with st.spinner("Gemini sta pensando..."):
         response = assistant.send_message(
             question=user_input,
             page_context=filtered_context,

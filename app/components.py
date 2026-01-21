@@ -22,6 +22,7 @@ Usage:
 """
 
 import streamlit as st
+import time
 from typing import Any, Dict, List
 
 # Import Gemini assistant module
@@ -191,6 +192,8 @@ def init_gemini_session_state() -> None:
     - gemini_input_key: Counter for input widget key regeneration
     - gemini_selected_data: Dict of selected data options per page
     - gemini_display_count: Number of messages to display (lazy loading)
+    - gemini_selected_charts: Dict of selected chart figures
+    - gemini_chart_order: List of chart IDs in selection order
     """
     if "gemini_history" not in st.session_state:
         st.session_state.gemini_history = []
@@ -203,6 +206,12 @@ def init_gemini_session_state() -> None:
     
     if "gemini_display_count" not in st.session_state:
         st.session_state.gemini_display_count = 20  # Show last 20 messages initially
+    
+    if "gemini_selected_charts" not in st.session_state:
+        st.session_state.gemini_selected_charts = {}
+    
+    if "gemini_chart_order" not in st.session_state:
+        st.session_state.gemini_chart_order = []
 
 
 def get_selected_data_options(page_type: str) -> Dict[str, bool]:
@@ -228,6 +237,77 @@ def get_selected_data_options(page_type: str) -> Dict[str, bool]:
             st.session_state.gemini_selected_data[page_type] = {}
     
     return st.session_state.gemini_selected_data[page_type]
+
+
+# =============================================================================
+# CHART SELECTION MANAGEMENT
+# =============================================================================
+
+def add_chart_to_context(chart_id: str, figure, label: str, page: str) -> None:
+    """
+    Aggiungi un chart al contesto del chatbot.
+    
+    Args:
+        chart_id: Identificatore unico (es. "single_asset_main_candle")
+        figure: Oggetto Plotly Figure
+        label: Nome human-readable (es. "Candlestick - BTC Daily")
+        page: Nome pagina (es. "single_asset")
+    """
+    init_gemini_session_state()
+    
+    # Aggiungi al dict
+    st.session_state.gemini_selected_charts[chart_id] = {
+        "figure": figure,
+        "label": label,
+        "page": page,
+        "timestamp": time.time()
+    }
+    
+    # Aggiungi all'ordine se non presente
+    if chart_id not in st.session_state.gemini_chart_order:
+        st.session_state.gemini_chart_order.append(chart_id)
+
+
+def remove_chart_from_context(chart_id: str) -> None:
+    """Rimuovi un chart dal contesto."""
+    init_gemini_session_state()
+    
+    if chart_id in st.session_state.gemini_selected_charts:
+        del st.session_state.gemini_selected_charts[chart_id]
+    
+    if chart_id in st.session_state.gemini_chart_order:
+        st.session_state.gemini_chart_order.remove(chart_id)
+
+
+def is_chart_in_context(chart_id: str) -> bool:
+    """Verifica se un chart è già nel contesto."""
+    init_gemini_session_state()
+    return chart_id in st.session_state.gemini_selected_charts
+
+
+def get_selected_chart_figures() -> List:
+    """
+    Ottieni lista di Figure objects nell'ordine di selezione.
+    
+    Returns:
+        Lista di Plotly Figure objects
+    """
+    init_gemini_session_state()
+    
+    figures = []
+    for chart_id in st.session_state.gemini_chart_order:
+        chart_data = st.session_state.gemini_selected_charts.get(chart_id)
+        if chart_data and "figure" in chart_data:
+            figures.append(chart_data["figure"])
+    
+    return figures
+
+
+def clear_all_charts() -> None:
+    """Rimuovi tutti i chart dal contesto."""
+    init_gemini_session_state()
+    st.session_state.gemini_selected_charts = {}
+    st.session_state.gemini_chart_order = []
 
 
 # =============================================================================
@@ -359,6 +439,70 @@ def render_status_badge() -> None:
         st.caption(f"✅ {status['model']}")
 
 
+def render_chart_add_button(
+    chart_id: str,
+    figure,
+    label: str,
+    page: str,
+    position: str = "inline",
+    disabled: bool = False
+) -> None:
+    """
+    Renderizza bottone per aggiungere/rimuovere chart dal contesto chat.
+    
+    Args:
+        chart_id: ID unico del chart
+        figure: Figura Plotly da salvare
+        label: Label descrittivo
+        page: Nome pagina corrente
+        position: "inline" (accanto al titolo) o "below" (sotto il chart)
+        disabled: Se True, disabilita il bottone (es. grafico non pronto)
+    
+    Usage:
+        # Prima di st.plotly_chart()
+        render_chart_add_button("main_candle", fig, "Candlestick Chart", "single_asset")
+        st.plotly_chart(fig)
+    """
+    init_gemini_session_state()
+    
+    is_added = is_chart_in_context(chart_id)
+    
+    # Limit: max 5 charts
+    num_charts = len(st.session_state.gemini_chart_order)
+    at_limit = num_charts >= 5 and not is_added
+    
+    if position == "inline":
+        # Small button con icona
+        if is_added:
+            if st.button("✅", key=f"chart_btn_{chart_id}", help="Rimuovi dalla chat", type="secondary", disabled=disabled):
+                remove_chart_from_context(chart_id)
+                st.rerun()
+        else:
+            if at_limit:
+                st.button("📎", key=f"chart_btn_{chart_id}", help="Massimo 5 chart. Rimuovine uno per aggiungerne altri.", disabled=True, type="secondary")
+            elif disabled:
+                st.button("📎", key=f"chart_btn_{chart_id}", help="Grafico non ancora pronto. Completa la simulazione prima di aggiungere.", disabled=True, type="secondary")
+            else:
+                if st.button("📎", key=f"chart_btn_{chart_id}", help="Aggiungi alla chat Gemini", type="secondary"):
+                    add_chart_to_context(chart_id, figure, label, page)
+                    st.rerun()
+    else:  # below
+        # Full-width button sotto il chart
+        if is_added:
+            if st.button(f"✅ {label} - Rimuovi dalla chat", key=f"chart_btn_{chart_id}", width='stretch', type="secondary", disabled=disabled):
+                remove_chart_from_context(chart_id)
+                st.rerun()
+        else:
+            if at_limit:
+                st.button(f"📎 {label} - Massimo 5 chart raggiunti", key=f"chart_btn_{chart_id}", width='stretch', disabled=True, type="secondary")
+            elif disabled:
+                st.button(f"📎 {label} - Non pronto", key=f"chart_btn_{chart_id}", width='stretch', disabled=True, type="secondary")
+            else:
+                if st.button(f"📎 Aggiungi {label} alla chat", key=f"chart_btn_{chart_id}", width='stretch', type="secondary"):
+                    add_chart_to_context(chart_id, figure, label, page)
+                    st.rerun()
+
+
 def render_welcome_message(page_type: str = "single_asset") -> None:
     """
     Render welcome message with page-specific quick suggestions.
@@ -385,7 +529,7 @@ def render_welcome_message(page_type: str = "single_asset") -> None:
         if st.button(
             f"› {suggestion}", 
             key=f"sug_{page_type}_{hash(suggestion)}", 
-            use_container_width=True,
+            width='stretch',
             type="secondary"
         ):
             st.session_state.gemini_pending_question = suggestion
@@ -444,6 +588,38 @@ def render_chat_messages(page_type: str = "single_asset") -> None:
     inject_auto_scroll_js(anchor_id)
 
 
+def render_selected_charts_list() -> None:
+    """
+    Renderizza lista compatta dei chart selezionati.
+    Mostra in un expander collassato per non occupare spazio.
+    """
+    init_gemini_session_state()
+    
+    num_charts = len(st.session_state.gemini_chart_order)
+    
+    if num_charts == 0:
+        return  # Non mostrare niente se nessun chart
+    
+    with st.expander(f"📊 Chart allegati ({num_charts})", expanded=False):
+        for chart_id in st.session_state.gemini_chart_order:
+            chart_data = st.session_state.gemini_selected_charts.get(chart_id)
+            if not chart_data:
+                continue
+            
+            col1, col2 = st.columns([0.85, 0.15])
+            with col1:
+                st.caption(chart_data["label"])
+            with col2:
+                if st.button("🗑️", key=f"remove_{chart_id}", help="Rimuovi"):
+                    remove_chart_from_context(chart_id)
+                    st.rerun()
+        
+        st.markdown("---")
+        if st.button("🗑️ Rimuovi tutti", key="clear_all_charts", width='stretch'):
+            clear_all_charts()
+            st.rerun()
+
+
 def render_data_selection(page_type: str) -> List[str]:
     """
     Render data selection checkboxes in an expander.
@@ -472,7 +648,7 @@ def render_data_selection(page_type: str) -> List[str]:
         
         st.markdown("---")
         
-        if st.button("🗑️ Pulisci chat", key="gem_clear", use_container_width=True):
+        if st.button("🗑️ Pulisci chat", key="gem_clear", width='stretch'):
             st.session_state.gemini_history = []
             if GEMINI_MODULE_AVAILABLE:
                 get_assistant().clear_history()
@@ -534,6 +710,12 @@ def _process_user_message(
             if key in DATA_OPTIONS[page_type]:
                 included_names.append(DATA_OPTIONS[page_type][key]["label"])
     
+    # Aggiungi info sui chart allegati
+    selected_figures = get_selected_chart_figures()
+    num_charts = len(selected_figures)
+    if num_charts > 0:
+        included_names.append(f"📊 {num_charts} chart")
+    
     user_message = {
         "role": "user",
         "content": user_input,
@@ -547,7 +729,8 @@ def _process_user_message(
         response = assistant.send_message(
             question=user_input,
             page_context=filtered_context,
-            history=st.session_state.gemini_history[:-1]
+            history=st.session_state.gemini_history[:-1],
+            chart_figures=selected_figures if num_charts > 0 else None
         )
     
     assistant_message = {
@@ -632,8 +815,9 @@ def render_gemini_sidebar(
     Layout order:
     1. Header + status
     2. Chat messages (with page-specific suggestions)
-    3. Text input (above options for natural flow)
-    4. Data selection expander (settings, used less frequently)
+    3. Selected charts list (compact expander)
+    4. Text input (above options for natural flow)
+    5. Data selection expander (settings, used less frequently)
     
     Args:
         page_context: Dictionary with current page information and data.
@@ -648,6 +832,9 @@ def render_gemini_sidebar(
     
     # 2. Chat messages (scrollable, with page-specific suggestions)
     render_chat_messages(page_type)
+    
+    # 2.5 Selected charts list (compact)
+    render_selected_charts_list()
     
     # 3. Store page_type in context
     page_context["page_type"] = page_type

@@ -33,6 +33,7 @@ from components import (
     footer, 
     title,
     render_gemini_sidebar,
+    render_chart_add_button,
 )
 
 # Import analysis modules
@@ -300,7 +301,9 @@ with st.sidebar:
 # =============================================================================
 
 st.markdown("---")
-st.markdown(
+col1, col2 = st.columns([0.92, 0.08])
+with col1:
+  st.markdown(
     "### Correlation Matrix",
     help="Correlation between assets based on daily returns. Values: -1 (inverse) to +1 (same direction). Diagonal = 1 (self)."
           )
@@ -343,6 +346,15 @@ fig_heatmap.update_layout(
     title="Asset Return Correlations"
 )
 
+with col2:
+    render_chart_add_button(
+        chart_id="cross_asset_heatmap",
+        figure=fig_heatmap,
+        label="Correlation Heatmap",
+        page="cross_asset",
+        position="inline"
+    )
+
 st.plotly_chart(fig_heatmap, width='stretch')
 
 # Typical correlations info
@@ -360,7 +372,9 @@ with st.expander("ℹ️  Typical Expected Correlations"):
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### Normalized Price Comparison",
+col1, col2 = st.columns([0.92, 0.08])
+with col1:
+  st.markdown("### Normalized Price Comparison",
             help="All prices start at 100. Line at 120 = +20% gain. Line at 80 = -20% loss. Compare performance easily."
 )
 
@@ -396,6 +410,16 @@ fig_normalized.update_layout(
     legend=dict(orientation="h", yanchor="bottom", y=1.02)
 )
 
+
+with col2:
+    render_chart_add_button(
+        chart_id="cross_asset_normalized",
+        figure=fig_normalized,
+        label="Normalized Prices",
+        page="cross_asset",
+        position="inline"
+    )
+
 st.plotly_chart(fig_normalized, width='stretch')
 
 
@@ -404,7 +428,9 @@ st.plotly_chart(fig_normalized, width='stretch')
 # =============================================================================
 
 st.markdown("---")
-st.subheader(
+t_col1, t_col2 = st.columns([0.92, 0.08])
+with t_col1:
+  st.subheader(
     "Simultaneous Anomalies",
     help="Detects days when multiple assets showed anomalies together. When many assets behave abnormally simultaneously, it suggests a market-wide (systemic) event rather than asset-specific news."
 )
@@ -497,6 +523,14 @@ fig_simultaneous.update_layout(
 )
 
 st.plotly_chart(fig_simultaneous, width='stretch')
+with t_col2:
+    render_chart_add_button(
+        chart_id="cross_asset_simultaneous_anomalies",
+        figure=fig_simultaneous,
+        label="Simultaneous Anomalies",
+        page="cross_asset",
+        position="inline"
+    )
 
 # Systemic events table (using same data source as chart)
 if total_systemic > 0:
@@ -533,6 +567,7 @@ else:
 # =============================================================================
 
 st.markdown("---")
+
 st.subheader(
     "Pair Deep Dive",
     help="Analyze the relationship between two specific assets in detail. See their correlation metrics, how correlation changes over time, and their return scatter plot."
@@ -595,7 +630,9 @@ with col4:
     )
 
 # Rolling correlation chart
-st.markdown(
+t_col1, t_col2 = st.columns([0.92, 0.08])
+with t_col1:
+  st.markdown(
     "#### Rolling Correlation Over Time",
     help=f"Blue line: Rolling {correlation_window}-day correlation. Gray dashed: Historical average. Orange dotted: ±2σ bands. Red dots: Anomalies (outside bands)."
 )
@@ -673,9 +710,19 @@ fig_rolling.update_layout(
 )
 
 st.plotly_chart(fig_rolling, width='stretch')
+with t_col2:
+    render_chart_add_button(
+        chart_id="cross_asset_pair_rolling_correlation",
+        figure=fig_rolling,
+        label="Rolling Correlation",
+        page="cross_asset",
+        position="inline"
+    )
 
 # Scatter plot of returns
-st.markdown(
+t_col1, t_col2 = st.columns([0.92, 0.08])
+with t_col1:
+  st.markdown(
     "#### Return Scatter Plot",
     help=f"Each dot = one day's returns for both assets. X-axis: {config.ASSETS.get(asset_a, asset_a)} return. Y-axis: {config.ASSETS.get(asset_b, asset_b)} return. Diagonal pattern = correlated. Random scatter = uncorrelated."
 )
@@ -716,6 +763,14 @@ fig_scatter.update_layout(
 )
 
 st.plotly_chart(fig_scatter, width='stretch')
+with t_col2:
+    render_chart_add_button(
+        chart_id="cross_asset_pair_return_scatter",
+        figure=fig_scatter,
+        label="Return Scatter Plot",
+        page="cross_asset",
+        position="inline"
+    )
 
 # =============================================================================
 # FOOTER

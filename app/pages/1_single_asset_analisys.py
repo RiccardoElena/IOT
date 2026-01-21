@@ -33,6 +33,7 @@ from components import (
     footer,
     title,
     render_gemini_sidebar,
+    render_chart_add_button,
 )
 
 # Import analysis modules
@@ -363,7 +364,10 @@ if "selected_zoom_range" not in st.session_state:
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### Price, Volume & Volatility")
+
+col1, col2 = st.columns([0.92, 0.08])
+with col1:
+    st.markdown("### Price, Volume & Volatility")
 
 # Create subplot figure
 fig_main = make_subplots(
@@ -491,7 +495,16 @@ fig_main.update_yaxes(title_text="Volume", row=2, col=1)
 fig_main.update_yaxes(title_text="Range ($)", row=3, col=1)
 fig_main.update_xaxes(title_text="Date", row=3, col=1)
 
-# Render chart (using width='stretch' instead of deprecated use_container_width)
+# Add button to title (reuse columns from title)
+with col2:
+    render_chart_add_button(
+        chart_id="single_asset_main_chart",
+        figure=fig_main,
+        label=f"Candlestick - {get_asset_display_name(selected_asset)} {get_granularity_display_name(selected_granularity)}",
+        page="single_asset",
+        position="inline"
+    )
+
 st.plotly_chart(fig_main, width='stretch')
 
 
@@ -506,7 +519,7 @@ if len(anomaly_df) > 0:
         st.markdown("#### Jump to Anomaly")
     
     with col2:
-        if st.button("🔄 Reset Zoom", use_container_width=True):
+        if st.button("🔄 Reset Zoom", width='stretch'):
             st.session_state.selected_zoom_range = None
             if "anomaly_selector" in st.session_state:
                 st.session_state.anomaly_selector = None
@@ -549,12 +562,14 @@ if len(anomaly_df) > 0:
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### Z-Score Analysis")
+col1, col2 = st.columns([0.92, 0.08])
+with col1:
+    st.markdown("### Z-Score Analysis")
 
 thresholds = get_threshold_lines(zscore_threshold)
 
 
-def create_zscore_chart(data: pd.Series, chart_title: str, anomaly_mask: pd.Series) -> go.Figure:
+def create_zscore_chart(data: pd.Series, anomaly_mask: pd.Series) -> go.Figure:
     """Create a Z-score chart with threshold lines and anomaly markers."""
     fig = go.Figure()
     
@@ -602,11 +617,11 @@ def create_zscore_chart(data: pd.Series, chart_title: str, anomaly_mask: pd.Seri
     
     # Layout
     fig.update_layout(
-        title=chart_title,
         height=350,
         showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
-        hovermode="x unified"
+        hovermode="x unified",
+        margin=dict(t=10)  # Reduce top margin to eliminate title space
     )
     fig.update_xaxes(title_text="Date")
     fig.update_yaxes(title_text="Z-Score")
@@ -620,25 +635,55 @@ tab1, tab2, tab3 = st.tabs(["Price Z-Score", "Volume Z-Score", "Volatility Z-Sco
 with tab1:
     fig_zscore_price = create_zscore_chart(
         df_processed["zscore_close"],
-        "Price Z-Score",
         df_processed["anomaly_price"]
     )
+    col1, col2 = st.columns([0.92, 0.08])
+    with col1:
+        st.markdown("#### Price Z-Score")
+    with col2:
+        render_chart_add_button(
+            chart_id="single_asset_zscore_price",
+            figure=fig_zscore_price,
+            label="Z-Score Price",
+            page="single_asset",
+            position="inline"
+        )
     st.plotly_chart(fig_zscore_price, width='stretch')
 
 with tab2:
     fig_zscore_volume = create_zscore_chart(
         df_processed["zscore_volume"],
-        "Volume Z-Score",
         df_processed["anomaly_volume"]
     )
+    col1, col2 = st.columns([0.92, 0.08])
+    with col1:
+        st.markdown("#### Volume Z-Score")
+    with col2:
+        render_chart_add_button(
+            chart_id="single_asset_zscore_volume",
+            figure=fig_zscore_volume,
+            label="Z-Score Volume",
+            page="single_asset",
+            position="inline"
+        )
     st.plotly_chart(fig_zscore_volume, width='stretch')
 
 with tab3:
     fig_zscore_volatility = create_zscore_chart(
         df_processed["zscore_volatility"],
-        "Volatility Z-Score",
         df_processed["anomaly_volatility"]
     )
+    col1, col2 = st.columns([0.92, 0.08])
+    with col1:
+        st.markdown("#### Volatility Z-Score")
+    with col2:
+        render_chart_add_button(
+            chart_id="single_asset_zscore_volatility",
+            figure=fig_zscore_volatility,
+            label="Z-Score Volatility",
+            page="single_asset",
+            position="inline"
+        )
     st.plotly_chart(fig_zscore_volatility, width='stretch')
 
 

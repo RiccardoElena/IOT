@@ -53,3 +53,11 @@ google-generativeai>=0.5.0
 # Convenient for local development (API keys, config)
 # Optional: can also use system environment variables directly
 python-dotenv>=1.0.0
+
+
+# -----------------------------------------------------------------------------
+# Chart Export
+# -----------------------------------------------------------------------------
+# Kaleido: Export Plotly figures to static images
+# Required for sending charts to Gemini Vision API
+kaleido>=0.2.1

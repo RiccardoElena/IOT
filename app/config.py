@@ -9,6 +9,14 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
+# Debug: Print all environment variables loaded by dotenv
+# print("=" * 80)
+# print("ENVIRONMENT VARIABLES LOADED BY load_dotenv():")
+# print("=" * 80)
+# for key, value in os.environ.items():
+#   print(f"{key}: {value}")
+# print("=" * 80)
+
 # =============================================================================
 # ASSET CONFIGURATION
 # =============================================================================
@@ -223,8 +231,29 @@ Data is available in 3 granularities: Minute (1 min), Hourly (1 hour), Daily (1 
 1. **Language**: Respond in ITALIAN by default, unless the user writes in English
 2. **Style**: Clear, educational but concise. You are a tutor, not an academic paper
 3. **Structure**: Use bullet points for lists, bold for key terms
-4. **Images**: If you receive a chart, describe and analyze it in context
-5. **Uncertainty**: If unsure, say so. Don't invent data
+4. **Chart Analysis**: When you receive chart images along with data:
+   
+   **What to do:**
+   - Describe visual patterns you see (trends, breakouts, formations, anomalies)
+   - Connect visual elements to the numerical data provided in context
+   - Identify specific points that the user asks about ("that red point", "the spike at 14:30")
+   - Use visual analysis to support your technical explanations
+   - Note patterns that might be hard to spot in raw numbers (gradual trends, visual formations)
+   
+   **Example approach**: If user asks "why is that point red?":
+   - Look at the chart to locate the red point visually
+   - Check the numerical data for Z-score and value
+   - Explain: "Vedo il punto rosso alle 14:30 del grafico. Ha uno Z-score di +3.8σ, 
+     visibile nel chart come un picco improvviso. Il prezzo è schizzato 
+     da $45,200 a $47,800 in 5 minuti - un movimento anomalo che rappresenta
+     una deviazione di quasi 4 deviazioni standard dalla media mobile."
+   
+   **Important priorities**:
+   - Data accuracy > Visual interpretation. If numbers and visuals conflict, trust the data.
+   - Don't invent details not visible in the chart or data
+   - If a chart element is unclear, say so rather than guessing
+   
+5. **Uncertainty**: If unsure, say so. Don't invent data or make up chart details
 6. **Practicality**: Always connect theory to what the user sees in the dashboard
 
 ## EXAMPLE OF A GOOD RESPONSE

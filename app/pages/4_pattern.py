@@ -32,6 +32,7 @@ from components import (
     footer,
     title,
     render_gemini_sidebar,
+    render_chart_add_button,
 )
 
 # Import data and pattern recognition modules
@@ -62,7 +63,7 @@ st.set_page_config(
     layout=config.LAYOUT
 )
 
-title("🔮 Pattern Recognition",
+title("Pattern Recognition",
       "Identify candlestick and chart patterns that may indicate future price movements.")
 
 
@@ -83,13 +84,13 @@ with st.sidebar:
     st.info("Using **Daily** data for pattern recognition")
     
     st.markdown("---")
-    st.subheader("🎛️ Pattern Calibration")
+    st.subheader("Pattern Calibration")
     
     tolerance = st.slider(
         "Price Tolerance (%)",
         min_value=2.0,
         max_value=15.0,
-        value=8.0,
+        value=2.0,
         step=1.0,
         help="How close peak/trough prices must be to match"
     )
@@ -99,7 +100,7 @@ with st.sidebar:
         "Peak Prominence (%)",
         min_value=0.5,
         max_value=5.0,
-        value=1.0,
+        value=5.0,
         step=0.5,
         help="Minimum height of peaks/troughs"
     )
@@ -114,7 +115,9 @@ with st.sidebar:
         help="Time window for detecting multi-candle patterns"
     )
     
-    st.markdown("---")
+    # Gemini sidebar will be rendered after data is loaded (at end of sidebar block)
+
+
 # =============================================================================
 # DATA LOADING
 # =============================================================================
@@ -227,6 +230,7 @@ gemini_context = build_pattern_context(
 
 # Render Gemini sidebar with pattern context
 with st.sidebar:
+    st.markdown("---")
     render_gemini_sidebar(
         page_context=gemini_context,
         page_type="patterns"
@@ -260,7 +264,9 @@ with col5:
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### 🕯️ Candlestick Patterns")
+t_col1, t_col2 = st.columns([0.92, 0.08])
+with t_col1:
+  st.markdown("### Candlestick Patterns")
 st.markdown("*Click on legend items to show/hide patterns*")
 
 open_col = config.COLUMNS["open"]
@@ -352,6 +358,15 @@ fig_candle.update_layout(
     )
 )
 
+with t_col2:
+    render_chart_add_button(
+        chart_id="patterns_main",
+        figure=fig_candle,
+        label=f"Patterns - {get_asset_display_name(selected_asset)}",
+        page="patterns",
+        position="inline"
+    )
+
 st.plotly_chart(fig_candle, width='stretch')
 
 # Candlestick pattern table
@@ -375,7 +390,9 @@ else:
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### Chart Patterns")
+t_col1, t_col2 = st.columns([0.92, 0.08])
+with t_col1:
+  st.markdown("### Chart Patterns")
 st.markdown("*Click on legend items to show/hide pattern regions*")
 
 if len(chart_patterns) > 0:
@@ -485,6 +502,14 @@ if len(chart_patterns) > 0:
     )
     
     st.plotly_chart(fig_chart, width='stretch')
+    with t_col2:
+        render_chart_add_button(
+            chart_id="patterns_chart",
+            figure=fig_chart,
+            label=f"Chart Patterns - {get_asset_display_name(selected_asset)}",
+            page="patterns",
+            position="inline"
+        )
     
     # Chart pattern details table
     st.markdown("#### Detected Chart Patterns")
@@ -532,7 +557,9 @@ else:
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### Pattern Distribution")
+t_col1, t_col2 = st.columns([0.92, 0.08])
+with t_col1:
+  st.markdown("### Pattern Distribution")
 
 all_pattern_counts = {
     "Doji": pattern_summary["doji"],
@@ -588,6 +615,14 @@ if all_pattern_counts:
         )
         
         st.plotly_chart(fig_pie, width='stretch')
+        with t_col2:
+            render_chart_add_button(
+                chart_id="patterns_distribution",
+                figure=fig_pie,
+                label="Pattern Distribution",
+                page="patterns",
+                position="inline"
+            )
 
 else:
     st.info("No patterns detected to display distribution.")
@@ -598,7 +633,9 @@ else:
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### 📅 Pattern Timeline")
+t_col1, t_col2 = st.columns([0.92, 0.08])
+with t_col1:
+  st.markdown("### Pattern Timeline")
 st.markdown("*Click on legend items to show/hide signals*")
 
 timeline_data = []
@@ -666,6 +703,14 @@ if timeline_data:
     )
     
     st.plotly_chart(fig_timeline, width='stretch')
+    with t_col2:
+        render_chart_add_button(
+            chart_id="patterns_timeline",
+            figure=fig_timeline,
+            label="Pattern Timeline",
+            page="patterns",
+            position="inline"
+        )
 
 else:
     st.info("No patterns to display on timeline.")

@@ -32,6 +32,7 @@ from components import (
     title,
     footer,
     render_gemini_sidebar,
+    render_chart_add_button,
 )
 
 # Import data loader
@@ -583,36 +584,38 @@ def render_anomaly_log(anomalies, current_idx):
 # CONTROL BUTTONS
 # =============================================================================
 
-st.markdown("#### Simulation Controls")
+t_col1, t_col2 = st.columns([0.92, 0.08])
+with t_col1:
+  st.markdown("#### Simulation Controls")
 
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     start_btn = st.button(
         "▶️ Start", 
-        use_container_width=True, 
+        width='stretch', 
         disabled=st.session_state.sim_running or st.session_state.sim_complete
     )
 
 with col2:
     if st.session_state.sim_paused:
-        resume_btn = st.button("▶️ Resume", use_container_width=True)
+        resume_btn = st.button("▶️ Resume", width='stretch')
         pause_btn = False
     else:
         pause_btn = st.button(
             "⏸️ Pause", 
-            use_container_width=True,
+            width='stretch',
             disabled=not st.session_state.sim_running
         )
         resume_btn = False
 
 with col3:
-    reset_btn = st.button("🔄 Reset", use_container_width=True)
+    reset_btn = st.button("🔄 Reset", width='stretch')
 
 with col4:
     run_all_btn = st.button(
         "⏭️ Run All", 
-        use_container_width=True, 
+        width='stretch', 
         disabled=st.session_state.sim_running or st.session_state.sim_complete
     )
 
@@ -693,10 +696,29 @@ if st.session_state.sim_running and not st.session_state.sim_paused:
 current_idx = st.session_state.current_idx
 anomalies = st.session_state.anomalies
 
-# Single combined chart with perfect alignment
+# Create chart
+fig_combined = create_combined_chart(current_idx, anomalies)
+
+# Update session state se chart è già stato aggiunto
+# (necessario perché il chart si aggiorna dinamicamente)
+if "gemini_selected_charts" in st.session_state:
+    if "realtime_main" in st.session_state.gemini_selected_charts:
+        st.session_state.gemini_selected_charts["realtime_main"]["figure"] = fig_combined
+
+# Chart with add button
+with t_col2:
+    render_chart_add_button(
+        chart_id="realtime_main",
+        figure=fig_combined,
+        label=f"Real-time Simulation - {get_asset_display_name(selected_asset)}",
+        page="realtime",
+        position="inline",
+        disabled=not st.session_state.sim_complete
+    )
+
 st.plotly_chart(
-    create_combined_chart(current_idx, anomalies), 
-    use_container_width=True, 
+    fig_combined, 
+    width='stretch', 
     config=chart_config
 )
 
@@ -741,7 +763,7 @@ st.markdown("### Anomaly Log")
 
 log_df = render_anomaly_log(anomalies, current_idx)
 if log_df is not None:
-    st.dataframe(log_df, use_container_width=True, height=200)
+    st.dataframe(log_df, width='stretch', height=200)
 elif st.session_state.sim_complete:
     st.toast("No anomalies detected during this simulation.", icon="ℹ️")
 

@@ -22,7 +22,26 @@ Usage:
 
 import os
 import json
+import base64
+import time
 from typing import Any, Dict, List, Optional
+from io import BytesIO
+
+# Try to import kaleido for chart export
+try:
+    import kaleido
+    KALEIDO_AVAILABLE = True
+except ImportError:
+    KALEIDO_AVAILABLE = False
+    kaleido = None
+
+# Try to import PIL for image processing
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    Image = None
 
 # Try to import python-dotenv for .env file support
 try:
@@ -45,6 +64,96 @@ try:
 except ImportError:
     GENAI_AVAILABLE = False
     genai = None
+
+
+# =============================================================================
+# CHART CONVERSION UTILITIES
+# =============================================================================
+
+def fig_to_base64_image(
+    fig,
+    format: str = 'png',
+    width: int = 1200,
+    height: int = 800,
+    scale: float = 2.0
+) -> Optional[Dict[str, Any]]:
+    """
+    Converti una figura Plotly in immagine base64 per Gemini Vision API.
+    
+    Args:
+        fig: Plotly Figure object
+        format: 'png' o 'jpeg'
+        width: Larghezza in pixel
+        height: Altezza in pixel  
+        scale: Fattore di scala per qualità (2 = retina)
+    
+    Returns:
+        Dict con mime_type e data, None se errore
+    """
+    if not KALEIDO_AVAILABLE:
+        print("[ChartExport] Kaleido not available. Cannot export chart.")
+        return None
+    
+    try:
+        # Export figura a bytes usando kaleido
+        img_bytes = fig.to_image(
+            format=format,
+            width=width,
+            height=height,
+            scale=scale
+        )
+        
+        # Converti in base64
+        img_b64 = base64.b64encode(img_bytes).decode('utf-8')
+        
+        # Determina mime type
+        mime_type = f"image/{format}"
+        
+        # Formato compatibile con genai
+        return {
+            "mime_type": mime_type,
+            "data": img_b64
+        }
+        
+    except Exception as e:
+        print(f"[ChartExport] Error converting figure: {e}")
+        return None
+
+
+def prepare_multimodal_content(
+    text_prompt: str,
+    chart_images: List[Dict[str, Any]]
+) -> List[Any]:
+    """
+    Prepara contenuto per Gemini multimodal (testo + immagini).
+    
+    Args:
+        text_prompt: Il prompt testuale
+        chart_images: Lista di dict da fig_to_base64_image()
+    
+    Returns:
+        Lista di parti per generate_content()
+    """
+    if not chart_images or len(chart_images) == 0:
+        return [text_prompt]
+    
+    # Inizia con il testo
+    parts = [text_prompt]
+    
+    # Aggiungi ogni immagine
+    for i, img_data in enumerate(chart_images):
+        if img_data and 'mime_type' in img_data and 'data' in img_data:
+            # Gemini accetta dict con mime_type e data
+            parts.append({
+                "mime_type": img_data["mime_type"],
+                "data": img_data["data"]
+            })
+            
+            # Aggiungi separator tra immagini multiple
+            if i < len(chart_images) - 1:
+                parts.append(f"\n--- Chart {i+2} ---\n")
+    
+    return parts
 
 
 # =============================================================================
@@ -188,7 +297,8 @@ class GeminiAssistant:
         self,
         question: str,
         page_context: Optional[Dict[str, Any]] = None,
-        history: Optional[List[Dict[str, str]]] = None
+        history: Optional[List[Dict[str, str]]] = None,
+        chart_figures: Optional[List] = None
     ) -> str:
         """
         Send a message to Gemini and get a response.
@@ -197,6 +307,7 @@ class GeminiAssistant:
             question: The user's question
             page_context: Dictionary with current page data and statistics
             history: Optional conversation history to include
+            chart_figures: Optional list of Plotly Figure objects to include as images
         
         Returns:
             The assistant's response text
@@ -209,8 +320,27 @@ class GeminiAssistant:
             # Build the full prompt
             prompt = self._build_prompt(question, page_context, history)
             
+            # Prepare content (text-only or multimodal)
+            if chart_figures and len(chart_figures) > 0:
+                # Multimodal: convert charts to images
+                chart_images = []
+                for fig in chart_figures[:5]:  # Limit to 5 charts max
+                    img_data = fig_to_base64_image(fig)
+                    if img_data:
+                        chart_images.append(img_data)
+                
+                if len(chart_images) > 0:
+                    # Use multimodal content
+                    content = prepare_multimodal_content(prompt, chart_images)
+                else:
+                    # Fallback to text-only if conversion failed
+                    content = prompt
+            else:
+                # Text-only mode
+                content = prompt
+            
             # Send to Gemini
-            response = self.model.generate_content(prompt)
+            response = self.model.generate_content(content)
             
             # Extract text from response
             if response and response.text:

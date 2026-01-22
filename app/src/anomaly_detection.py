@@ -337,15 +337,17 @@ def get_anomaly_table(df: pd.DataFrame) -> pd.DataFrame:
     volume_col = config.COLUMNS["volume"]
     
     for idx, row in df.iterrows():
+        pct_val = row.get("pct_change", None)
+        pct_change_value = pct_val if pd.notna(pct_val) else None
+        
         # Check price anomaly - include pct_change
         if row.get("anomaly_price", False):
-            pct_val = row.get("pct_change", None)
             anomalies.append({
                 "timestamp": idx,
                 "type": "Price",
                 "value": row[close_col],
                 "zscore": row["zscore_close"],
-                "pct_change": pct_val if pd.notna(pct_val) else None
+                "pct_change": pct_change_value
             })
         
         # Check volume anomaly
@@ -355,7 +357,7 @@ def get_anomaly_table(df: pd.DataFrame) -> pd.DataFrame:
                 "type": "Volume",
                 "value": row[volume_col],
                 "zscore": row["zscore_volume"],
-                "pct_change": None
+                "pct_change": pct_change_value
             })
         
         # Check volatility anomaly
@@ -365,7 +367,7 @@ def get_anomaly_table(df: pd.DataFrame) -> pd.DataFrame:
                 "type": "Volatility",
                 "value": row.get("volatility", None),
                 "zscore": row["zscore_volatility"],
-                "pct_change": None
+                "pct_change": pct_change_value
             })
     
     if not anomalies:

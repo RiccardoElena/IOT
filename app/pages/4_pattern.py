@@ -12,20 +12,13 @@ Gemini AI assistant provides contextual help on pattern interpretation.
 
 Run with: streamlit run app.py (then navigate to this page)
 """
-
-import os
-import sys
-
-import numpy as np
+from typing import Tuple
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-from plotly.subplots import make_subplots
-
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import config
+from utils.logger import logger
 
 # Import UI components including Gemini sidebar
 from components import (
@@ -123,12 +116,12 @@ with st.sidebar:
 # =============================================================================
 
 @st.cache_data
-def load_daily_data(asset: str):
+def load_daily_data(asset: str) -> pd.DataFrame:
     return load_single_asset(asset, "daily")
 
 
 @st.cache_data
-def get_date_bounds(asset: str):
+def get_date_bounds(asset: str) -> Tuple[pd.Timestamp, pd.Timestamp]:
     return get_date_range_fast(asset, "daily")
 
 
@@ -140,9 +133,11 @@ try:
         max_date = max_date_ts.date()
 
 except FileNotFoundError as e:
+    logger.error(f"Data file not found: {e}")
     st.error(f"Data file not found: {e}")
     st.stop()
 except Exception as e:
+    logger.error(f"Error loading data: {e}", exc_info=True)
     st.error(f"Error loading data: {e}")
     st.stop()
 
@@ -327,11 +322,11 @@ for pattern_col, pattern_name in pattern_names.items():
                     y=y_values,
                     mode="markers",
                     name=pattern_name,
-                    marker=dict(
-                        symbol=pattern_symbols[pattern_col],
-                        size=12,
-                        color=pattern_colors[pattern_col]
-                    ),
+                    marker={
+                        "symbol": pattern_symbols[pattern_col],
+                        "size": 12,
+                        "color": pattern_colors[pattern_col]
+                    },
                     hovertemplate=(
                         f"<b>{pattern_name}</b><br>"
                         "Date: %{x}<br>"
@@ -349,13 +344,13 @@ fig_candle.update_layout(
     yaxis_title="Price",
     xaxis_rangeslider_visible=False,
     hovermode="x unified",
-    legend=dict(
-        orientation="h", 
-        yanchor="bottom", 
-        y=1.02,
-        itemclick="toggle",
-        itemdoubleclick="toggleothers"
-    )
+    legend={
+        "orientation": "h", 
+        "yanchor": "bottom", 
+        "y": 1.02,
+        "itemclick": "toggle",
+        "itemdoubleclick": "toggleothers"
+    }
 )
 
 with t_col2:
@@ -405,7 +400,7 @@ if len(chart_patterns) > 0:
             y=df_filtered[close_col],
             mode="lines",
             name="Price",
-            line=dict(color=config.COLOR_NORMAL, width=1.5),
+            line={"color": config.COLOR_NORMAL, "width": 1.5},
             hovertemplate="Date: %{x}<br>Price: $%{y:.2f}<extra></extra>"
         )
     )
@@ -465,7 +460,7 @@ if len(chart_patterns) > 0:
                 y=y_coords,
                 fill="toself",
                 fillcolor=fill_color,
-                line=dict(color=border_color, width=1),
+                line={"color": border_color, "width": 1},
                 name=ptype,
                 mode="lines",
                 hoverinfo="name",
@@ -482,7 +477,7 @@ if len(chart_patterns) > 0:
                     x1=p["end_date"],
                     y0=p["neckline"],
                     y1=p["neckline"],
-                    line=dict(color=border_color, width=1, dash="dot"),
+                    line={"color": border_color, "width": 1, "dash": "dot"},
                     opacity=0.7
                 )
     
@@ -492,13 +487,13 @@ if len(chart_patterns) > 0:
         xaxis_title="Date",
         yaxis_title="Price",
         hovermode="x unified",
-        legend=dict(
-            orientation="h", 
-            yanchor="bottom", 
-            y=1.02,
-            itemclick="toggle",
-            itemdoubleclick="toggleothers"
-        )
+        legend={
+            "orientation": "h", 
+            "yanchor": "bottom", 
+            "y": 1.02,
+            "itemclick": "toggle",
+            "itemdoubleclick": "toggleothers"
+        }
     )
     
     st.plotly_chart(fig_chart, width='stretch')
@@ -644,12 +639,11 @@ for pattern_col, pattern_name in pattern_names.items():
     if pattern_col in df_patterns.columns:
         mask = df_patterns[pattern_col]
         for idx in df_patterns[mask].index:
+            name = "Bearish" if "Bearish" in pattern_name else "Neutral"
             timeline_data.append({
                 "date": idx,
                 "pattern": pattern_name,
-                "signal": "Bullish" if "Bullish" in pattern_name or pattern_name == "Hammer" else (
-                    "Bearish" if "Bearish" in pattern_name else "Neutral"
-                )
+                "signal": "Bullish" if "Bullish" in pattern_name or pattern_name == "Hammer" else name
             })
 
 for p in chart_patterns:
@@ -681,7 +675,7 @@ if timeline_data:
                     y=[signal] * len(data),
                     mode="markers",
                     name=signal,
-                    marker=dict(size=12, color=signal_colors[signal]),
+                    marker={"size": 12, "color": signal_colors[signal]},
                     text=data["pattern"],
                     hovertemplate="<b>%{text}</b><br>Date: %{x}<extra></extra>"
                 )
@@ -693,13 +687,13 @@ if timeline_data:
         xaxis_title="Date",
         yaxis_title="Signal Type",
         hovermode="closest",
-        legend=dict(
-            orientation="h", 
-            yanchor="bottom", 
-            y=1.02,
-            itemclick="toggle",
-            itemdoubleclick="toggleothers"
-        )
+        legend={
+            "orientation": "h", 
+            "yanchor": "bottom", 
+            "y": 1.02,
+            "itemclick": "toggle",
+            "itemdoubleclick": "toggleothers"
+        }
     )
     
     st.plotly_chart(fig_timeline, width='stretch')

@@ -10,16 +10,18 @@ This module implements cross-asset analysis techniques:
 Used to identify relationships between different assets.
 """
 
-import os
-import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
 import pandas as pd
 
-# Add parent directory to path for config import
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import config
+# Import only what we need from config
+from config.anomaly import (
+    CORRELATION_WINDOW,
+    SYSTEMIC_EVENT_THRESHOLD,
+)
+from config.data import COLUMNS
+from config.assets import ASSETS
 
 
 # =============================================================================
@@ -55,7 +57,7 @@ def calculate_returns_matrix(price_matrix: pd.DataFrame) -> pd.DataFrame:
 def calculate_rolling_correlation(
     series_a: pd.Series,
     series_b: pd.Series,
-    window: int = None
+    window: Optional[int] = None
 ) -> pd.Series:
     """
     Calculate rolling correlation between two series.
@@ -69,14 +71,14 @@ def calculate_rolling_correlation(
         Series with rolling correlation values
     """
     if window is None:
-        window = config.CORRELATION_WINDOW
+        window = CORRELATION_WINDOW
     
     return series_a.rolling(window=window).corr(series_b)
 
 
 def calculate_all_rolling_correlations(
     price_matrix: pd.DataFrame,
-    window: int = None
+    window: Optional[int] = None
 ) -> Dict[Tuple[str, str], pd.Series]:
     """
     Calculate rolling correlations for all asset pairs.
@@ -89,7 +91,7 @@ def calculate_all_rolling_correlations(
         Dictionary mapping (asset_a, asset_b) to correlation series
     """
     if window is None:
-        window = config.CORRELATION_WINDOW
+        window = CORRELATION_WINDOW
     
     # Use returns for correlation (more stationary)
     returns = calculate_returns_matrix(price_matrix)
@@ -138,7 +140,7 @@ def detect_correlation_anomalies(
     return (rolling_corr > upper_bound) | (rolling_corr < lower_bound)
 
 
-def get_correlation_statistics(rolling_corr: pd.Series) -> Dict[str, float]:
+def get_correlation_statistics(rolling_corr: pd.Series) -> Dict[str, float | None]:
     """
     Get summary statistics for a rolling correlation series.
     
@@ -185,7 +187,7 @@ def count_simultaneous_anomalies(
 
 def detect_systemic_events(
     anomaly_counts: pd.Series,
-    threshold: int = None
+    threshold: Optional[int] = None
 ) -> pd.Series:
     """
     Detect systemic events (multiple assets anomalous simultaneously).
@@ -198,7 +200,7 @@ def detect_systemic_events(
         Boolean Series (True = systemic event)
     """
     if threshold is None:
-        threshold = config.SYSTEMIC_EVENT_THRESHOLD
+        threshold = SYSTEMIC_EVENT_THRESHOLD
     
     return anomaly_counts >= threshold
 
@@ -241,7 +243,7 @@ def get_systemic_event_details(
         return pd.DataFrame(columns=["timestamp", "count", "assets"])
     
     result = pd.DataFrame(events)
-    result.index = range(1, len(result) + 1)
+    result.index = list(range(1, len(result) + 1))
     return result
 
 
@@ -320,8 +322,8 @@ def analyze_asset_pair(
     price_matrix: pd.DataFrame,
     asset_a: str,
     asset_b: str,
-    window: int = None
-) -> Dict[str, any]:
+    window: Optional[int] = None
+) -> Dict[str, Any]:
     """
     Comprehensive analysis of a single asset pair.
     
@@ -335,7 +337,7 @@ def analyze_asset_pair(
         Dictionary with analysis results
     """
     if window is None:
-        window = config.CORRELATION_WINDOW
+        window = CORRELATION_WINDOW
     
     # Get price series
     prices_a = price_matrix[asset_a]
@@ -387,7 +389,7 @@ def create_price_matrix_from_dict(
     Returns:
         DataFrame with assets as columns, aligned by timestamp
     """
-    close_col = config.COLUMNS["close"]
+    close_col = COLUMNS["close"]
     
     price_series = {}
     for asset, df in data.items():
@@ -412,7 +414,7 @@ def get_asset_pairs() -> List[Tuple[str, str]]:
     Returns:
         List of (asset_a, asset_b) tuples
     """
-    assets = list(config.ASSETS.keys())
+    assets = list(ASSETS.keys())
     pairs = []
     
     for i, asset_a in enumerate(assets):
@@ -433,6 +435,6 @@ def format_pair_name(asset_a: str, asset_b: str) -> str:
     Returns:
         Formatted pair name
     """
-    name_a = config.ASSETS.get(asset_a, asset_a)
-    name_b = config.ASSETS.get(asset_b, asset_b)
+    name_a = ASSETS.get(asset_a, asset_a)
+    name_b = ASSETS.get(asset_b, asset_b)
     return f"{name_a} / {name_b}"

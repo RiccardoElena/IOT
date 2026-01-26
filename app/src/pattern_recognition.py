@@ -19,18 +19,22 @@ Default parameters are permissive to detect more patterns.
 Use calibration sliders in the UI to fine-tune.
 """
 
-import os
-import sys
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 from scipy.signal import find_peaks
 
-# Add parent directory to path for config import
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import config
-
+# Import only what we need from config
+from config.patterns import (
+    PEAK_DISTANCE,
+    PEAK_PROMINENCE_PCT,
+    SMOOTHING_WINDOW,
+    DOJI_BODY_RATIO_DEFAULT,
+    HAMMER_BODY_RATIO_DEFAULT,
+    HAMMER_SHADOW_RATIO_DEFAULT,
+)
+from config.data import COLUMNS
 
 # =============================================================================
 # CANDLESTICK HELPER FUNCTIONS
@@ -46,7 +50,7 @@ def get_candle_body(row: pd.Series) -> float:
     Returns:
         Body size (absolute value)
     """
-    return abs(row[config.COLUMNS["close"]] - row[config.COLUMNS["open"]])
+    return abs(row[COLUMNS["close"]] - row[COLUMNS["open"]])
 
 
 def get_candle_range(row: pd.Series) -> float:
@@ -59,7 +63,7 @@ def get_candle_range(row: pd.Series) -> float:
     Returns:
         Full range
     """
-    return row[config.COLUMNS["high"]] - row[config.COLUMNS["low"]]
+    return row[COLUMNS["high"]] - row[COLUMNS["low"]]
 
 
 def get_upper_shadow(row: pd.Series) -> float:
@@ -72,8 +76,8 @@ def get_upper_shadow(row: pd.Series) -> float:
     Returns:
         Upper shadow length
     """
-    high = row[config.COLUMNS["high"]]
-    body_top = max(row[config.COLUMNS["open"]], row[config.COLUMNS["close"]])
+    high = row[COLUMNS["high"]]
+    body_top = max(row[COLUMNS["open"]], row[COLUMNS["close"]])
     return high - body_top
 
 
@@ -87,26 +91,26 @@ def get_lower_shadow(row: pd.Series) -> float:
     Returns:
         Lower shadow length
     """
-    low = row[config.COLUMNS["low"]]
-    body_bottom = min(row[config.COLUMNS["open"]], row[config.COLUMNS["close"]])
+    low = row[COLUMNS["low"]]
+    body_bottom = min(row[COLUMNS["open"]], row[COLUMNS["close"]])
     return body_bottom - low
 
 
 def is_bullish(row: pd.Series) -> bool:
     """Check if candle is bullish (close > open)."""
-    return row[config.COLUMNS["close"]] > row[config.COLUMNS["open"]]
+    return row[COLUMNS["close"]] > row[COLUMNS["open"]]
 
 
 def is_bearish(row: pd.Series) -> bool:
     """Check if candle is bearish (close < open)."""
-    return row[config.COLUMNS["close"]] < row[config.COLUMNS["open"]]
+    return row[COLUMNS["close"]] < row[COLUMNS["open"]]
 
 
 # =============================================================================
 # CANDLESTICK PATTERNS
 # =============================================================================
 
-def detect_doji(df: pd.DataFrame, threshold: float = 0.1) -> pd.Series:
+def detect_doji(df: pd.DataFrame, threshold: float = DOJI_BODY_RATIO_DEFAULT) -> pd.Series:
     """
     Detect Doji pattern.
     
@@ -136,7 +140,7 @@ def detect_doji(df: pd.DataFrame, threshold: float = 0.1) -> pd.Series:
     return pd.Series(results, index=df.index, name="doji")
 
 
-def detect_hammer(df: pd.DataFrame, body_ratio: float = 0.3, shadow_ratio: float = 2.0) -> pd.Series:
+def detect_hammer(df: pd.DataFrame, body_ratio: float = HAMMER_BODY_RATIO_DEFAULT, shadow_ratio: float = HAMMER_SHADOW_RATIO_DEFAULT) -> pd.Series:
     """
     Detect Hammer pattern.
     
@@ -181,8 +185,8 @@ def detect_engulfing_bullish(df: pd.DataFrame) -> pd.Series:
     """
     results = [False]  # First candle can't be engulfing
     
-    open_col = config.COLUMNS["open"]
-    close_col = config.COLUMNS["close"]
+    open_col = COLUMNS["open"]
+    close_col = COLUMNS["close"]
     
     for i in range(1, len(df)):
         prev_row = df.iloc[i - 1]
@@ -212,8 +216,8 @@ def detect_engulfing_bearish(df: pd.DataFrame) -> pd.Series:
     """
     results = [False]
     
-    open_col = config.COLUMNS["open"]
-    close_col = config.COLUMNS["close"]
+    open_col = COLUMNS["open"]
+    close_col = COLUMNS["close"]
     
     for i in range(1, len(df)):
         prev_row = df.iloc[i - 1]
@@ -238,7 +242,7 @@ def detect_engulfing_bearish(df: pd.DataFrame) -> pd.Series:
 # CHART PATTERN HELPER FUNCTIONS
 # =============================================================================
 
-def smooth_prices(prices: pd.Series, window: int = 5) -> pd.Series:
+def smooth_prices(prices: pd.Series, window: int = SMOOTHING_WINDOW) -> pd.Series:
     """
     Smooth prices using simple moving average.
     
@@ -254,8 +258,8 @@ def smooth_prices(prices: pd.Series, window: int = 5) -> pd.Series:
 
 def find_local_peaks(
     prices: pd.Series, 
-    distance: int = 5, 
-    prominence_pct: float = 0.01
+    distance: int = PEAK_DISTANCE, 
+    prominence_pct: float = PEAK_PROMINENCE_PCT
 ) -> np.ndarray:
     """
     Find local maxima (peaks) in price series.
@@ -311,8 +315,7 @@ def find_local_troughs(
 # =============================================================================
 
 def detect_double_top(
-    df: pd.DataFrame, 
-    lookback: int = 50,
+    df: pd.DataFrame,
     tolerance: float = 0.08,
     min_distance: int = 5,
     prominence_pct: float = 0.01
@@ -333,7 +336,7 @@ def detect_double_top(
     Returns:
         List of detected patterns with details
     """
-    close_col = config.COLUMNS["close"]
+    close_col = COLUMNS["close"]
     prices = df[close_col]
     smoothed = smooth_prices(prices, window=5)
     
@@ -393,7 +396,6 @@ def detect_double_top(
 
 def detect_double_bottom(
     df: pd.DataFrame, 
-    lookback: int = 50,
     tolerance: float = 0.08,
     min_distance: int = 5,
     prominence_pct: float = 0.01
@@ -414,7 +416,7 @@ def detect_double_bottom(
     Returns:
         List of detected patterns with details
     """
-    close_col = config.COLUMNS["close"]
+    close_col = COLUMNS["close"]
     prices = df[close_col]
     smoothed = smooth_prices(prices, window=5)
     
@@ -472,7 +474,6 @@ def detect_double_bottom(
 
 def detect_head_and_shoulders(
     df: pd.DataFrame, 
-    lookback: int = 60,
     tolerance: float = 0.08,
     min_distance: int = 5,
     prominence_pct: float = 0.01
@@ -493,7 +494,7 @@ def detect_head_and_shoulders(
     Returns:
         List of detected patterns with details
     """
-    close_col = config.COLUMNS["close"]
+    close_col = COLUMNS["close"]
     prices = df[close_col]
     smoothed = smooth_prices(prices, window=5)
     
@@ -581,7 +582,7 @@ def detect_cup_and_handle(
     Returns:
         List of detected patterns with details
     """
-    close_col = config.COLUMNS["close"]
+    close_col = COLUMNS["close"]
     prices = df[close_col]
     smoothed = smooth_prices(prices, window=5)
     
@@ -715,19 +716,19 @@ def detect_all_chart_patterns(
     min_distance = max(3, lookback // 10)
     
     patterns.extend(detect_double_top(
-        df, lookback, tolerance, 
+        df, tolerance, 
         min_distance=min_distance, 
         prominence_pct=prominence_pct
     ))
     
     patterns.extend(detect_double_bottom(
-        df, lookback, tolerance,
+        df, tolerance,
         min_distance=min_distance,
         prominence_pct=prominence_pct
     ))
     
     patterns.extend(detect_head_and_shoulders(
-        df, lookback, tolerance,
+        df, tolerance,
         min_distance=min_distance,
         prominence_pct=prominence_pct
     ))
@@ -773,7 +774,7 @@ def get_pattern_table(df: pd.DataFrame) -> pd.DataFrame:
         DataFrame with pattern details
     """
     patterns = []
-    close_col = config.COLUMNS["close"]
+    close_col = COLUMNS["close"]
     
     pattern_cols = {
         "pattern_doji": "Doji",
@@ -789,13 +790,12 @@ def get_pattern_table(df: pd.DataFrame) -> pd.DataFrame:
         mask = df[col]
         for idx in df[mask].index:
             row = df.loc[idx]
+            name = "Bearish" if "Bearish" in name else "Neutral"
             patterns.append({
                 "timestamp": idx,
                 "pattern": name,
                 "price": row[close_col],
-                "signal": "Bullish" if "Bullish" in name or name == "Hammer" else (
-                    "Bearish" if "Bearish" in name else "Neutral"
-                )
+                "signal": "Bullish" if "Bullish" in name or name == "Hammer" else name
             })
     
     if not patterns:
@@ -803,6 +803,6 @@ def get_pattern_table(df: pd.DataFrame) -> pd.DataFrame:
     
     result = pd.DataFrame(patterns)
     result = result.sort_values("timestamp")
-    result.index = range(1, len(result) + 1)
+    result.index = list(range(1, len(result) + 1))
     
     return result

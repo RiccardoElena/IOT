@@ -25,6 +25,41 @@ import streamlit as st
 import time
 from typing import Any, Dict, List
 
+from utils.logger import logger
+
+# Import constants
+try:
+    import config
+    PAGE_TYPE_SINGLE_ASSET = config.PAGE_TYPE_SINGLE_ASSET
+    PAGE_TYPE_REALTIME = config.PAGE_TYPE_REALTIME
+    PAGE_TYPE_CROSS_ASSET = config.PAGE_TYPE_CROSS_ASSET
+    PAGE_TYPE_PATTERNS = config.PAGE_TYPE_PATTERNS
+    CHAT_MESSAGES_HEIGHT = config.CHAT_MESSAGES_HEIGHT
+    MAX_CHARTS_IN_CONTEXT = config.MAX_CHARTS_IN_CONTEXT
+    INITIAL_MESSAGE_DISPLAY_COUNT = config.INITIAL_MESSAGE_DISPLAY_COUNT
+    MAX_ANOMALIES_IN_CONTEXT = config.MAX_ANOMALIES_IN_CONTEXT
+    MAX_PATTERNS_IN_CONTEXT = config.MAX_PATTERNS_IN_CONTEXT
+    MAX_SYSTEMIC_EVENTS_DISPLAY = config.MAX_SYSTEMIC_EVENTS_DISPLAY
+    DEFAULT_CHART_CONFIG = config.DEFAULT_CHART_CONFIG
+except ImportError:
+    # Fallback if constants not available
+    PAGE_TYPE_SINGLE_ASSET = "single_asset"
+    PAGE_TYPE_REALTIME = "realtime"
+    PAGE_TYPE_CROSS_ASSET = "cross_asset"
+    PAGE_TYPE_PATTERNS = "patterns"
+    CHAT_MESSAGES_HEIGHT = 300
+    MAX_CHARTS_IN_CONTEXT = 5
+    INITIAL_MESSAGE_DISPLAY_COUNT = 20
+    MAX_ANOMALIES_IN_CONTEXT = 10
+    MAX_PATTERNS_IN_CONTEXT = 10
+    MAX_SYSTEMIC_EVENTS_DISPLAY = 5
+    DEFAULT_CHART_CONFIG = {'displayModeBar': False}
+    INITIAL_MESSAGE_DISPLAY_COUNT = 20
+    MAX_ANOMALIES_IN_CONTEXT = 10
+    MAX_PATTERNS_IN_CONTEXT = 10
+    MAX_SYSTEMIC_EVENTS_DISPLAY = 5
+    DEFAULT_CHART_CONFIG = {'displayModeBar': False}
+
 # Import Gemini assistant module
 try:
     from src.gemini_assistant import (
@@ -74,7 +109,7 @@ def footer(page_title: str) -> None:
 
 # Available data options for each page type
 DATA_OPTIONS = {
-    "single_asset": {
+    PAGE_TYPE_SINGLE_ASSET: {
         "price_stats": {
             "label": "Statistiche prezzo",
             "description": "Min, max, current, % change",
@@ -101,7 +136,7 @@ DATA_OPTIONS = {
             "default": False
         }
     },
-    "realtime": {
+    PAGE_TYPE_REALTIME: {
         "simulation_progress": {
             "label": "Progresso simulazione",
             "description": "Current progress and points streamed",
@@ -118,7 +153,7 @@ DATA_OPTIONS = {
             "default": False
         }
     },
-    "cross_asset": {
+    PAGE_TYPE_CROSS_ASSET: {
         "correlation_matrix": {
             "label": "🔗 Matrice correlazioni",
             "description": "Full correlation matrix between assets",
@@ -135,7 +170,7 @@ DATA_OPTIONS = {
             "default": False
         }
     },
-    "patterns": {
+    PAGE_TYPE_PATTERNS: {
         "candlestick_patterns": {
             "label": "🕯️ Pattern candlestick",
             "description": "Doji, Hammer, Engulfing patterns",
@@ -156,22 +191,22 @@ DATA_OPTIONS = {
 
 # Page-specific suggested questions for welcome message
 PAGE_SUGGESTIONS = {
-    "single_asset": [
+    PAGE_TYPE_SINGLE_ASSET: [
         "Cosa significa Z-score?",
         "Spiega le anomalie rilevate",
         "Analizza il trend del prezzo"
     ],
-    "realtime": [
+    PAGE_TYPE_REALTIME: [
         "Come funziona la sliding window?",
         "Spiega le anomalie in tempo reale",
         "Cosa indica la simulazione?"
     ],
-    "cross_asset": [
+    PAGE_TYPE_CROSS_ASSET: [
         "Spiega la matrice di correlazione",
         "Cosa sono gli eventi sistemici?",
         "Analizza le relazioni tra asset"
     ],
-    "patterns": [
+    PAGE_TYPE_PATTERNS: [
         "Cosa indica un pattern Doji?",
         "Spiega i pattern rilevati",
         "Qual è il segnale più importante?"
@@ -205,7 +240,7 @@ def init_gemini_session_state() -> None:
         st.session_state.gemini_selected_data = {}
     
     if "gemini_display_count" not in st.session_state:
-        st.session_state.gemini_display_count = 20  # Show last 20 messages initially
+        st.session_state.gemini_display_count = INITIAL_MESSAGE_DISPLAY_COUNT
     
     if "gemini_selected_charts" not in st.session_state:
         st.session_state.gemini_selected_charts = {}
@@ -243,7 +278,7 @@ def get_selected_data_options(page_type: str) -> Dict[str, bool]:
 # CHART SELECTION MANAGEMENT
 # =============================================================================
 
-def add_chart_to_context(chart_id: str, figure, label: str, page: str) -> None:
+def add_chart_to_context(chart_id: str, figure: Any, label: str, page: str) -> None:
     """
     Aggiungi un chart al contesto del chatbot.
     
@@ -408,19 +443,8 @@ def inject_auto_scroll_js(anchor_id: str) -> None:
 
 def render_gemini_header() -> None:
     """Render the Gemini chat header with status indicator."""
-    # col1, col2 = st.columns([4, 1])
     
-    # with col1:
     st.markdown("### Gemini Assistant")
-    
-    # with col2:
-    #     if GEMINI_MODULE_AVAILABLE:
-    #         if is_gemini_available():
-    #             st.markdown("🟢")
-    #         else:
-    #             st.markdown("🟡")
-    #     else:
-    #         st.markdown("🔴")
 
 
 def render_status_badge() -> None:
@@ -429,7 +453,7 @@ def render_status_badge() -> None:
         st.caption("❌ Module not available")
         return
     
-    status = get_gemini_status()
+    status = get_gemini_status() # type: ignore
     
     if not status["library_installed"]:
         st.caption("❌ Library missing")
@@ -441,7 +465,7 @@ def render_status_badge() -> None:
 
 def render_chart_add_button(
     chart_id: str,
-    figure,
+    figure: Any,
     label: str,
     page: str,
     position: str = "inline",
@@ -467,9 +491,9 @@ def render_chart_add_button(
     
     is_added = is_chart_in_context(chart_id)
     
-    # Limit: max 5 charts
+    # Limit: max charts
     num_charts = len(st.session_state.gemini_chart_order)
-    at_limit = num_charts >= 5 and not is_added
+    at_limit = num_charts >= MAX_CHARTS_IN_CONTEXT and not is_added
     
     if position == "inline":
         # Small button con icona
@@ -479,7 +503,7 @@ def render_chart_add_button(
                 st.rerun()
         else:
             if at_limit:
-                st.button("📎", key=f"chart_btn_{chart_id}", help="Massimo 5 chart. Rimuovine uno per aggiungerne altri.", disabled=True, type="secondary")
+                st.button("📎", key=f"chart_btn_{chart_id}", help=f"Massimo {MAX_CHARTS_IN_CONTEXT} chart. Rimuovine uno per aggiungerne altri.", disabled=True, type="secondary")
             elif disabled:
                 st.button("📎", key=f"chart_btn_{chart_id}", help="Grafico non ancora pronto. Completa la simulazione prima di aggiungere.", disabled=True, type="secondary")
             else:
@@ -494,7 +518,7 @@ def render_chart_add_button(
                 st.rerun()
         else:
             if at_limit:
-                st.button(f"📎 {label} - Massimo 5 chart raggiunti", key=f"chart_btn_{chart_id}", width='stretch', disabled=True, type="secondary")
+                st.button(f"📎 {label} - Massimo {MAX_CHARTS_IN_CONTEXT} chart raggiunti", key=f"chart_btn_{chart_id}", width='stretch', disabled=True, type="secondary")
             elif disabled:
                 st.button(f"📎 {label} - Non pronto", key=f"chart_btn_{chart_id}", width='stretch', disabled=True, type="secondary")
             else:
@@ -523,7 +547,7 @@ def render_welcome_message(page_type: str = "single_asset") -> None:
     st.markdown("**💡 Prova:**")
     
     # Get page-specific suggestions
-    suggestions = PAGE_SUGGESTIONS.get(page_type, PAGE_SUGGESTIONS["single_asset"])
+    suggestions = PAGE_SUGGESTIONS.get(page_type, PAGE_SUGGESTIONS[PAGE_TYPE_SINGLE_ASSET])
     
     for suggestion in suggestions:
         if st.button(
@@ -564,7 +588,7 @@ def render_chat_messages(page_type: str = "single_asset") -> None:
     anchor_id = f"msg_anchor_{unique_id}"
 
     # Scrollable container
-    messages_container = st.container(height=300)
+    messages_container = st.container(height=CHAT_MESSAGES_HEIGHT)
     
     with messages_container:
         for i, msg in enumerate(history):
@@ -638,9 +662,10 @@ def render_data_selection(page_type: str) -> List[str]:
     
     with st.expander("📎 Dati da allegare", expanded=False):
         for key, opt in options.items():
+            default_value = opt["default"] if opt["default"] is not None else False
             new_value = st.checkbox(
                 opt["label"],
-                value=selected.get(key, opt["default"]),
+                value=selected.get(key, default_value),
                 key=f"data_opt_{page_type}_{key}",
                 help=opt["description"]
             )
@@ -648,10 +673,10 @@ def render_data_selection(page_type: str) -> List[str]:
         
         st.markdown("---")
         
-        if st.button("🗑️ Pulisci chat", key="gem_clear", width='stretch'):
+        if st.button("🗑️ Pulisci chat", key="gem_clear", use_container_width=True):
             st.session_state.gemini_history = []
             if GEMINI_MODULE_AVAILABLE:
-                get_assistant().clear_history()
+                get_assistant().clear_history() # type: ignore
             st.rerun()
     
     return [
@@ -698,6 +723,7 @@ def _process_user_message(
         selected_data: List of selected data keys to include
     """
     if not GEMINI_MODULE_AVAILABLE:
+        logger.error("Gemini module not available")
         st.error("Gemini module not available")
         return
     
@@ -723,7 +749,7 @@ def _process_user_message(
     }
     st.session_state.gemini_history.append(user_message)
     
-    assistant = get_assistant()
+    assistant = get_assistant() # type: ignore
     
     with st.spinner("Gemini sta pensando..."):
         response = assistant.send_message(
@@ -866,4 +892,4 @@ def clear_chat_history() -> None:
     st.session_state.gemini_history = []
     
     if GEMINI_MODULE_AVAILABLE:
-        get_assistant().clear_history()
+        get_assistant().clear_history() # type: ignore

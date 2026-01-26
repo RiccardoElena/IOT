@@ -12,9 +12,8 @@ Gemini AI assistant provides contextual help based on simulation state.
 Run with: streamlit run app.py (then navigate to this page)
 """
 
-import os
-import sys
 import time
+from typing import Any, Dict, List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -22,10 +21,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import config
+from utils.logger import logger
 
 # Import UI components including Gemini sidebar
 from components import (
@@ -111,14 +108,24 @@ with st.sidebar:
 # =============================================================================
 
 @st.cache_data
-def load_minute_data(asset: str):
+def load_minute_data(asset: str) -> pd.DataFrame:
     return load_single_asset(asset, "minute")
 
 
 @st.cache_data
-def get_available_days(df: pd.DataFrame):
-    dates = pd.Series(df.index.date).unique()
-    return sorted(dates)
+def get_available_days(df: pd.DataFrame) -> List:
+    # Usa normalize() per ottenere solo le date, evitando l'accesso diretto a .date
+    dates = pd.DatetimeIndex(df.index).normalize().unique()
+    return sorted([d.date() for d in dates])
+
+
+@st.cache_data
+def filter_day_data(df: pd.DataFrame, selected_day) -> pd.DataFrame:
+    """Filter dataframe to a specific day - cached for performance."""
+    # Usa operazioni vettorizzate per massima performance
+    start = pd.Timestamp(selected_day)
+    end = start + pd.Timedelta(days=1)
+    return df[(df.index >= start) & (df.index < end)].copy()
 
 
 try:
@@ -126,9 +133,11 @@ try:
         df_full = load_minute_data(selected_asset)
         available_days = get_available_days(df_full)
 except FileNotFoundError as e:
+    logger.error(f"Data file not found: {e}")
     st.error(f"Data file not found: {e}")
     st.stop()
 except Exception as e:
+    logger.error(f"Error loading data: {e}", exc_info=True)
     st.error(f"Error loading data: {e}")
     st.stop()
 
@@ -152,7 +161,7 @@ if st.session_state.selected_day_persist not in available_days:
     st.session_state.selected_day_persist = closest_date
     st.warning(f"Selected date not available for this asset. Using closest date: {closest_date}")
 
-def on_day_change():
+def on_day_change() -> None:
     """Callback when day selection changes"""
     st.session_state.selected_day_persist = st.session_state.day_selector
 
@@ -165,7 +174,7 @@ selected_day = st.selectbox(
     on_change=on_day_change
 )
 
-df_day = df_full[df_full.index.date == selected_day].copy()
+df_day = filter_day_data(df_full, selected_day)
 
 if len(df_day) == 0:
     st.warning("No data available for selected day.")
@@ -211,9 +220,9 @@ current_price = prices[current_idx - 1] if current_idx > 0 else None
 # Calculate current Z-score if enough data
 current_zscore = None
 if current_idx > window_size:
-    window_data = prices[current_idx - window_size:current_idx]
-    mean = np.mean(window_data)
-    std = np.std(window_data)
+    window_data = np.asarray(prices[current_idx - window_size:current_idx])
+    mean = window_data.mean()
+    std = window_data.std()
     if std > 0:
         current_zscore = (prices[current_idx - 1] - mean) / std
 
@@ -229,13 +238,14 @@ for a in anomalies[-10:]:
 # Optional window statistics
 window_stats = None
 if current_idx > window_size:
-    window_data = prices[current_idx - window_size:current_idx]
+    window_data = np.asarray(prices[current_idx - window_size:current_idx])
     window_stats = {
-        "mean": f"${np.mean(window_data):.2f}",
-        "std": f"${np.std(window_data):.4f}",
-        "min": f"${np.min(window_data):.2f}",
-        "max": f"${np.max(window_data):.2f}"
+        "mean": f"${window_data.mean():.2f}",
+        "std": f"${window_data.std():.4f}",
+        "min": f"${window_data.min():.2f}",
+        "max": f"${window_data.max():.2f}"
     }
+
 
 # Build Gemini context with current simulation state
 gemini_context = build_realtime_context(
@@ -266,9 +276,12 @@ with st.sidebar:
 # HELPER FUNCTIONS
 # =============================================================================
 
-chart_config = {
-    'displayModeBar': False,
-}
+# Import constants
+try:
+    from config import DEFAULT_CHART_CONFIG
+    chart_config = DEFAULT_CHART_CONFIG
+except ImportError:
+    chart_config = {'displayModeBar': False}
 
 def get_severity(zscore: float, threshold: float) -> str:
     abs_z = abs(zscore)
@@ -280,14 +293,19 @@ def get_severity(zscore: float, threshold: float) -> str:
         return "🟡 LOW"
 
 
-def calculate_anomalies_batch(prices, window, threshold, timestamps):
+def calculate_anomalies_batch(
+    prices: np.ndarray,
+    window: int,
+    threshold: float,
+    timestamps: pd.DatetimeIndex
+) -> List[Dict[str, Any]]:
     """Calculate all anomalies in batch mode (for Run All)."""
     anomalies = []
     for i in range(window, len(prices)):
-        window_data = prices[i - window:i]
+        window_data = np.asarray(prices[i - window:i])
         current_price = prices[i]
-        mean = np.mean(window_data)
-        std = np.std(window_data)
+        mean = window_data.mean()
+        std = window_data.std()
         if std > 0:
             zscore = (current_price - mean) / std
             if abs(zscore) >= threshold:
@@ -300,17 +318,25 @@ def calculate_anomalies_batch(prices, window, threshold, timestamps):
     return anomalies
 
 
-def process_batch(start_idx, batch_size, prices, window, threshold, timestamps, existing_anomalies):
+def process_batch(
+    start_idx: int,
+    batch_size: int,
+    prices: np.ndarray,
+    window: int,
+    threshold: float,
+    timestamps: pd.DatetimeIndex,
+    existing_anomalies: List[Dict[str, Any]]
+) -> Tuple[int, List[Dict[str, Any]]]:
     """Process a batch of points and return new anomalies."""
     new_anomalies = []
     end_idx = min(start_idx + batch_size, len(prices))
     
     for i in range(start_idx, end_idx):
         if i >= window:
-            window_data = prices[i - window:i]
+            window_data = np.asarray(prices[i - window:i])
             current_price = prices[i]
-            mean = np.mean(window_data)
-            std = np.std(window_data)
+            mean = window_data.mean()
+            std = window_data.std()
             
             if std > 0:
                 zscore = (current_price - mean) / std
@@ -325,7 +351,7 @@ def process_batch(start_idx, batch_size, prices, window, threshold, timestamps, 
     return end_idx, existing_anomalies + new_anomalies
 
 
-def create_combined_chart(current_idx, anomalies):
+def create_combined_chart(current_idx: int, anomalies: List[Dict[str, Any]]) -> go.Figure:
     """Create a combined chart with 3 subplots sharing X axis."""
     
     # Create subplots: 3 rows, shared X axis
@@ -354,7 +380,7 @@ def create_combined_chart(current_idx, anomalies):
                 y=display_prices,
                 mode="lines",
                 name="Price",
-                line=dict(color=config.COLOR_NORMAL, width=2),
+                line={"color": config.COLOR_NORMAL, "width": 2},
                 hovertemplate="Price: $%{y:.2f}<extra></extra>"
             ),
             row=1, col=1
@@ -369,7 +395,7 @@ def create_combined_chart(current_idx, anomalies):
                     y=[a["price"] for a in visible_anomalies],
                     mode="markers",
                     name="Anomaly",
-                    marker=dict(size=12, color=config.COLOR_ANOMALY, symbol="x", line=dict(width=2)),
+                    marker={"size": 12, "color": config.COLOR_ANOMALY, "symbol": "x", "line": {"width": 2}},
                     customdata=[a["zscore"] for a in visible_anomalies],
                     hovertemplate="<b>⚠️ ANOMALY</b><br>Price: $%{y:.2f}<br>Z-Score: %{customdata:.2f}σ<extra></extra>"
                 ),
@@ -385,7 +411,7 @@ def create_combined_chart(current_idx, anomalies):
                 fillcolor="rgba(100, 149, 237, 0.2)",
                 line_width=2,
                 line_color="rgba(100, 149, 237, 0.8)",
-                row=1, col=1
+                row=1, col=1 # type: ignore
             )
         else:
             fig.add_vrect(
@@ -397,7 +423,7 @@ def create_combined_chart(current_idx, anomalies):
                 annotation_text=f"Building ({current_idx}/{window_size})",
                 annotation_position="top left",
                 annotation_font_size=10,
-                row=1, col=1
+                row=1, col=1 # type: ignore
             )
         
         # =====================================================================
@@ -412,20 +438,20 @@ def create_combined_chart(current_idx, anomalies):
                     zscores.append(0)
                 elif i < window_size:
                     # Building phase: use all available points
-                    window_data = prices[:i]
+                    window_data = np.asarray(prices[:i])
                     current_price = prices[i]
-                    mean = np.mean(window_data)
-                    std = np.std(window_data)
+                    mean = window_data.mean()
+                    std = window_data.std()
                     if std > 0:
                         zscores.append((current_price - mean) / std)
                     else:
                         zscores.append(0)
                 else:
                     # Stable phase: use full window
-                    window_data = prices[i - window_size:i]
+                    window_data = np.asarray(prices[i - window_size:i])
                     current_price = prices[i]
-                    mean = np.mean(window_data)
-                    std = np.std(window_data)
+                    mean = window_data.mean()
+                    std = window_data.std()
                     if std > 0:
                         zscores.append((current_price - mean) / std)
                     else:
@@ -440,7 +466,7 @@ def create_combined_chart(current_idx, anomalies):
                         y=zscores,
                         mode="lines",
                         name="Z-Score (building)",
-                        line=dict(color="rgba(255, 193, 7, 1)", width=2),
+                        line={"color": "rgba(255, 193, 7, 1)", "width": 2},
                         fill='tozeroy',
                         fillcolor='rgba(255, 193, 7, 0.15)',
                         hovertemplate="Z-Score: %{y:.2f}σ <i>(building)</i><extra></extra>"
@@ -458,7 +484,7 @@ def create_combined_chart(current_idx, anomalies):
                         y=zscores[:split_idx + 1],
                         mode="lines",
                         name="Z-Score (building)",
-                        line=dict(color="rgba(255, 193, 7, 1)", width=2),
+                        line={"color": "rgba(255, 193, 7, 1)", "width": 2},
                         fill='tozeroy',
                         fillcolor='rgba(255, 193, 7, 0.15)',
                         hovertemplate="Z-Score: %{y:.2f}σ <i>(building)</i><extra></extra>"
@@ -473,7 +499,7 @@ def create_combined_chart(current_idx, anomalies):
                         y=zscores[split_idx:],
                         mode="lines",
                         name="Z-Score (stable)",
-                        line=dict(color=config.COLOR_NORMAL, width=2),
+                        line={"color": config.COLOR_NORMAL, "width": 2},
                         fill='tozeroy',
                         fillcolor='rgba(100, 149, 237, 0.1)',
                         hovertemplate="Z-Score: %{y:.2f}σ<extra></extra>"
@@ -489,7 +515,7 @@ def create_combined_chart(current_idx, anomalies):
                 annotation_text=f"+{zscore_threshold}σ",
                 annotation_position="right",
                 annotation_font_size=10,
-                row=2, col=1
+                row=2, col=1 # type: ignore
             )
             fig.add_hline(
                 y=-zscore_threshold, 
@@ -498,9 +524,9 @@ def create_combined_chart(current_idx, anomalies):
                 annotation_text=f"-{zscore_threshold}σ",
                 annotation_position="right",
                 annotation_font_size=10,
-                row=2, col=1
+                row=2, col=1 # type: ignore
             )
-            fig.add_hline(y=0, line_color="gray", line_width=1, row=2, col=1)
+            fig.add_hline(y=0, line_color="gray", line_width=1, row=2, col=1) # type: ignore
         
         # =====================================================================
         # ROW 3: VOLUME CHART
@@ -525,7 +551,7 @@ def create_combined_chart(current_idx, anomalies):
             xref="paper", yref="paper",
             text="Press ▶️ Start to begin streaming simulation",
             showarrow=False,
-            font=dict(size=18, color="gray")
+            font={"size": 18, "color": "gray"}
         )
     
     # =========================================================================
@@ -536,15 +562,15 @@ def create_combined_chart(current_idx, anomalies):
         height=650,
         hovermode="x unified",
         showlegend=True,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="center",
-            x=0.5,
-            font=dict(size=10)
-        ),
-        margin=dict(l=60, r=20, t=60, b=40),
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "center",
+            "x": 0.5,
+            "font": {"size": 10}
+        },
+        margin={"l": 60, "r": 20, "t": 60, "b": 40},
     )
     
     # Update Y-axis labels
@@ -556,17 +582,18 @@ def create_combined_chart(current_idx, anomalies):
     fig.update_xaxes(title_text="Time", row=3, col=1)
     
     # Style subplot titles
-    for annotation in fig['layout']['annotations']:
-        if annotation['text'] in ["Price (Streaming)", "Rolling Z-Score", "Volume"]:
-            annotation['font'] = dict(size=12, color="gray")
+    # type: ignore - annotations exists at runtime from make_subplots
+    annotations = list(fig.layout.annotations) if hasattr(fig.layout, 'annotations') else []  # type: ignore
+    for annotation in annotations:
+        if hasattr(annotation, 'text') and annotation.text in ["Price (Streaming)", "Rolling Z-Score", "Volume"]:
+            annotation.update(font={"size": 12, "color": "gray"})
     
     return fig
 
 
-def render_anomaly_log(anomalies, current_idx):
+def render_anomaly_log(anomalies: List[Dict[str, Any]], current_idx: int) -> Optional[pd.DataFrame]:
     """Render the anomaly log as a dataframe."""
     visible_anomalies = [a for a in anomalies if a["idx"] < current_idx]
-    
     if visible_anomalies:
         log_data = []
         for a in visible_anomalies:
@@ -610,7 +637,11 @@ with col2:
         resume_btn = False
 
 with col3:
-    reset_btn = st.button("🔄 Reset", width='stretch')
+    reset_btn = st.button(
+        "🔄 Reset", 
+        width='stretch',
+        disabled=st.session_state.current_idx == 0
+    )
 
 with col4:
     run_all_btn = st.button(
@@ -648,7 +679,7 @@ if resume_btn:
 
 if run_all_btn:
     st.session_state.anomalies = calculate_anomalies_batch(
-        prices, window_size, zscore_threshold, timestamps
+        prices, window_size, zscore_threshold, timestamps # type: ignore
     )
     st.session_state.current_idx = len(df_day)
     st.session_state.sim_complete = True
@@ -670,10 +701,10 @@ if st.session_state.sim_running and not st.session_state.sim_paused:
         new_idx, new_anomalies = process_batch(
             current_idx, 
             batch_size, 
-            prices, 
+            prices, # type: ignore
             window_size, 
             zscore_threshold, 
-            timestamps,
+            timestamps, # type: ignore
             st.session_state.anomalies
         )
         
@@ -741,9 +772,9 @@ with col4:
     st.metric("Current Price", f"${current_price:.2f}" if current_price > 0 else "-")
 with col5:
     if current_idx > window_size:
-        window_data = prices[current_idx - window_size:current_idx]
-        mean = np.mean(window_data)
-        std = np.std(window_data)
+        window_data = np.asarray(prices[current_idx - window_size:current_idx])
+        mean = window_data.mean()
+        std = window_data.std()
         if std > 0:
             current_z = (prices[current_idx - 1] - mean) / std
             st.metric("Current Z-Score", f"{current_z:.2f}σ")
@@ -805,9 +836,10 @@ if st.session_state.sim_complete:
     with col2:
         st.metric("End Price", f"${prices[-1]:.2f}")
     with col3:
-        st.metric("High", f"${prices.max():.2f}")
+        prices_arr = np.asarray(prices)
+        st.metric("High", f"${prices_arr.max():.2f}")
     with col4:
-        st.metric("Low", f"${prices.min():.2f}")
+        st.metric("Low", f"${prices_arr.min():.2f}")
 
 
 # =============================================================================

@@ -7,15 +7,22 @@ Supports lazy loading for large datasets (minute-level data).
 """
 
 import os
-import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
 import pandas as pd
 
-# Add parent directory to path for config import
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import config
+# Import logger
+from utils.logger import logger
+
+# Import only what we need from config
+from config.data import (
+    DATA_BASE_PATH,
+    GRANULARITY_PATHS,
+    GRANULARITY_DISPLAY,
+    COLUMNS,
+)
+from config.assets import ASSETS, FILE_NAMES
 
 
 # =============================================================================
@@ -36,21 +43,21 @@ def get_file_path(asset: str, granularity: str) -> str:
     Raises:
         ValueError: If asset or granularity is not recognized
     """
-    if asset not in config.FILE_NAMES:
+    if asset not in FILE_NAMES:
         raise ValueError(
-            f"Unknown asset: {asset}. Valid options: {list(config.FILE_NAMES.keys())}"
+            f"Unknown asset: {asset}. Valid options: {list(FILE_NAMES.keys())}"
         )
     
-    if granularity not in config.GRANULARITY_PATHS:
+    if granularity not in GRANULARITY_PATHS:
         raise ValueError(
             f"Unknown granularity: {granularity}. "
-            f"Valid options: {list(config.GRANULARITY_PATHS.keys())}"
+            f"Valid options: {list(GRANULARITY_PATHS.keys())}"
         )
     
     return os.path.join(
-        config.DATA_BASE_PATH,
-        config.GRANULARITY_PATHS[granularity],
-        config.FILE_NAMES[asset]
+        DATA_BASE_PATH,
+        GRANULARITY_PATHS[granularity],
+        FILE_NAMES[asset]
     )
 
 
@@ -83,8 +90,8 @@ def load_single_asset(asset: str, granularity: str) -> pd.DataFrame:
     # Read CSV with proper parsing
     df = pd.read_csv(
         file_path,
-        parse_dates=[config.COLUMNS["timestamp"]],
-        index_col=config.COLUMNS["timestamp"]
+        parse_dates=[COLUMNS["timestamp"]],
+        index_col=COLUMNS["timestamp"]
     )
     
     # Sort by timestamp (ascending)
@@ -112,11 +119,11 @@ def load_all_assets(granularity: str) -> Dict[str, pd.DataFrame]:
     """
     data = {}
     
-    for asset in config.ASSETS.keys():
+    for asset in ASSETS.keys():
         try:
             data[asset] = load_single_asset(asset, granularity)
         except FileNotFoundError as e:
-            print(f"Warning: Could not load {asset}: {e}")
+            logger.warning(f"Could not load {asset}: {e}")
             continue
     
     return data
@@ -172,11 +179,11 @@ def get_date_range_fast(asset: str, granularity: str) -> Tuple[pd.Timestamp, pd.
     # Read only the timestamp column
     df_dates = pd.read_csv(
         file_path,
-        usecols=[config.COLUMNS["timestamp"]],
-        parse_dates=[config.COLUMNS["timestamp"]]
+        usecols=[COLUMNS["timestamp"]],
+        parse_dates=[COLUMNS["timestamp"]]
     )
     
-    timestamps = df_dates[config.COLUMNS["timestamp"]]
+    timestamps = df_dates[COLUMNS["timestamp"]]
     
     return timestamps.min(), timestamps.max()
 
@@ -209,8 +216,8 @@ def load_asset_date_range(
     # Read full CSV (we need to filter after reading for CSV format)
     df = pd.read_csv(
         file_path,
-        parse_dates=[config.COLUMNS["timestamp"]],
-        index_col=config.COLUMNS["timestamp"]
+        parse_dates=[COLUMNS["timestamp"]],
+        index_col=COLUMNS["timestamp"]
     )
     
     # Sort by timestamp
@@ -298,7 +305,7 @@ def filter_by_single_day(df: pd.DataFrame, date: str) -> pd.DataFrame:
         DataFrame containing only data from the specified day
     """
     target_date = pd.to_datetime(date).date()
-    mask = df.index.date == target_date
+    mask = df.index.date == target_date # type: ignore
     return df[mask].copy()
 
 
@@ -306,7 +313,7 @@ def filter_by_single_day(df: pd.DataFrame, date: str) -> pd.DataFrame:
 # DATA TRANSFORMATION FUNCTIONS
 # =============================================================================
 
-def calculate_returns(df: pd.DataFrame, column: str = None) -> pd.Series:
+def calculate_returns(df: pd.DataFrame, column: Optional[str] = None) -> pd.Series:
     """
     Calculate percentage returns (period-over-period change).
     
@@ -318,7 +325,7 @@ def calculate_returns(df: pd.DataFrame, column: str = None) -> pd.Series:
         Series with percentage returns
     """
     if column is None:
-        column = config.COLUMNS["close"]
+        column = COLUMNS["close"]
     
     return df[column].pct_change() * 100
 
@@ -333,8 +340,8 @@ def calculate_volatility(df: pd.DataFrame) -> pd.Series:
     Returns:
         Series with volatility values
     """
-    high_col = config.COLUMNS["high"]
-    low_col = config.COLUMNS["low"]
+    high_col = COLUMNS["high"]
+    low_col = COLUMNS["low"]
     
     return df[high_col] - df[low_col]
 
@@ -353,7 +360,7 @@ def normalize_prices(df: pd.DataFrame, base_value: float = 100.0) -> pd.DataFram
     Returns:
         DataFrame with normalized prices
     """
-    close_col = config.COLUMNS["close"]
+    close_col = COLUMNS["close"]
     
     result = df.copy()
     first_value = result[close_col].iloc[0]
@@ -372,7 +379,7 @@ def create_price_matrix(data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     Returns:
         DataFrame with timestamps as index and assets as columns
     """
-    close_col = config.COLUMNS["close"]
+    close_col = COLUMNS["close"]
     
     price_series = {}
     for asset, df in data.items():
@@ -385,7 +392,7 @@ def create_price_matrix(data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
 # DATA VALIDATION FUNCTIONS
 # =============================================================================
 
-def validate_data(df: pd.DataFrame) -> Dict[str, any]:
+def validate_data(df: pd.DataFrame) -> Dict[str, Any]:
     """
     Validate loaded data and return summary statistics.
     
@@ -395,8 +402,8 @@ def validate_data(df: pd.DataFrame) -> Dict[str, any]:
     Returns:
         Dictionary with validation results and statistics
     """
-    close_col = config.COLUMNS["close"]
-    volume_col = config.COLUMNS["volume"]
+    close_col = COLUMNS["close"]
+    volume_col = COLUMNS["volume"]
     
     return {
         "rows": len(df),
@@ -420,8 +427,8 @@ def get_available_dates(df: pd.DataFrame) -> List[str]:
     Returns:
         List of date strings in 'YYYY-MM-DD' format
     """
-    unique_dates = df.index.date
-    return sorted(list(set([str(d) for d in unique_dates])))
+    unique_dates = df.index.date # type: ignore
+    return sorted({str(d) for d in unique_dates})
 
 
 # =============================================================================
@@ -459,7 +466,7 @@ def get_asset_display_name(asset: str) -> str:
     Returns:
         Display name (e.g., 'S&P 500')
     """
-    return config.ASSETS.get(asset, asset)
+    return ASSETS.get(asset, asset)
 
 
 def get_granularity_display_name(granularity: str) -> str:
@@ -472,7 +479,7 @@ def get_granularity_display_name(granularity: str) -> str:
     Returns:
         Display name (e.g., 'Daily')
     """
-    return config.GRANULARITY_DISPLAY.get(granularity, granularity)
+    return GRANULARITY_DISPLAY.get(granularity, granularity)
 
 
 def list_available_assets() -> List[str]:
@@ -482,7 +489,7 @@ def list_available_assets() -> List[str]:
     Returns:
         List of asset keys
     """
-    return list(config.ASSETS.keys())
+    return list(ASSETS.keys())
 
 
 def list_available_granularities() -> List[str]:
@@ -492,4 +499,4 @@ def list_available_granularities() -> List[str]:
     Returns:
         List of granularity keys
     """
-    return list(config.GRANULARITY_PATHS.keys())
+    return list(GRANULARITY_PATHS.keys())

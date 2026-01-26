@@ -13,8 +13,7 @@ Gemini AI assistant provides contextual help on correlation interpretation.
 Run with: streamlit run app.py (then navigate to this page)
 """
 
-import os
-import sys
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -23,10 +22,11 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Opt-in to future pandas behavior to avoid FutureWarning on fillna
+pd.set_option('future.no_silent_downcasting', True)
 
 import config
+from utils.logger import logger
 
 # Import UI components including Gemini sidebar
 from components import (
@@ -100,7 +100,7 @@ def get_anomaly_details_by_date(anomaly_flags: dict) -> pd.DataFrame:
                 "timestamp": timestamp,
                 "count": len(affected_assets),
                 "assets_list": affected_assets,
-                "assets_str": ", ".join([config.ASSETS.get(a, a) for a in affected_assets])
+                "assets_str": ", ".join([str(config.ASSETS.get(a, a)) for a in affected_assets])
             })
     
     if not results:
@@ -152,13 +152,18 @@ with st.sidebar:
 # =============================================================================
 
 @st.cache_data
-def load_all_daily_data():
+def load_all_daily_data() -> Dict[str, pd.DataFrame]:
     """Load daily data for all assets."""
     return load_all_assets("daily")
 
 
 @st.cache_data
-def process_cross_asset_data(data_dict, start_date, end_date, zscore_threshold):
+def process_cross_asset_data(
+    data_dict: Dict[str, pd.DataFrame],
+    start_date: str,
+    end_date: str,
+    zscore_threshold: float
+) -> Tuple[Dict[str, pd.DataFrame], pd.DataFrame, Dict[str, pd.Series]]:
     """Process all assets for cross-asset analysis."""
     
     # Filter each asset by date range
@@ -191,6 +196,7 @@ try:
         st.stop()
 
 except Exception as e:
+    logger.error(f"Error loading data: {e}", exc_info=True)
     st.error(f"Error loading data: {e}")
     st.stop()
 
@@ -242,6 +248,7 @@ try:
         )
 
 except Exception as e:
+    logger.error(f"Error processing data: {e}", exc_info=True)
     st.error(f"Error processing data: {e}")
     st.stop()
 
@@ -261,7 +268,9 @@ for i, asset_a in enumerate(assets_list):
     for j, asset_b in enumerate(assets_list):
         if i < j:  # Only upper triangle (avoid duplicates)
             pair_key = f"{config.ASSETS.get(asset_a, asset_a)} vs {config.ASSETS.get(asset_b, asset_b)}"
-            correlation_dict[pair_key] = round(corr_matrix_pre.loc[asset_a, asset_b], 3)
+            corr_value = corr_matrix_pre.loc[asset_a, asset_b]
+            # type: ignore - correlation matrix contains only floats
+            correlation_dict[pair_key] = round(float(corr_value.item() if hasattr(corr_value, 'item') else corr_value), 3)  # type: ignore
 
 # Calculate systemic events summary
 anomaly_df = pd.DataFrame(anomaly_flags).fillna(False).astype(bool)
@@ -407,7 +416,7 @@ fig_normalized.update_layout(
     xaxis_title="Date",
     yaxis_title="Normalized Value (100 = start)",
     hovermode="x unified",
-    legend=dict(orientation="h", yanchor="bottom", y=1.02)
+    legend={"orientation":"h", "yanchor":"bottom", "y":1.02}
 )
 
 
@@ -513,10 +522,10 @@ fig_simultaneous.add_hline(
 
 fig_simultaneous.update_layout(
     height=350,
-    title=dict(
-        text=f"Simultaneous Anomalies per Day<br><sup>Blue = 1 asset | Orange = 2 assets | Red = {systemic_threshold}+ assets (systemic)</sup>",
-        font=dict(size=14)
-    ),
+    title={
+        "text": f"Simultaneous Anomalies per Day<br><sup>Blue = 1 asset | Orange = 2 assets | Red = {systemic_threshold}+ assets (systemic)</sup>",
+        "font":{"size": 14}
+    },
     xaxis_title="Date",
     yaxis_title="Number of Assets with Anomalies",
     hovermode="x unified"
@@ -554,7 +563,7 @@ if total_systemic > 0:
     
     if systemic_table_data:
         systemic_df = pd.DataFrame(systemic_table_data)
-        systemic_df.index = range(1, len(systemic_df) + 1)
+        systemic_df.index = range(1, len(systemic_df) + 1) # type: ignore
         st.dataframe(systemic_df, width='stretch')
     else:
         st.info(f"No systemic events detected (threshold: {systemic_threshold}+ assets)")
@@ -650,7 +659,7 @@ fig_rolling.add_trace(
         y=rolling_corr.values,
         mode="lines",
         name="Rolling Correlation",
-        line=dict(color=config.COLOR_NORMAL),
+        line={"color": config.COLOR_NORMAL},
         hovertemplate="Date: %{x}<br>Correlation: %{y:.3f}<extra></extra>"
     )
 )
@@ -687,10 +696,10 @@ if anomaly_mask.any():
             y=anomaly_corr.values,
             mode="markers",
             name="Correlation Anomaly",
-            marker=dict(
-                size=10,
-                color=config.COLOR_ANOMALY
-            ),
+            marker={
+                "size": 10,
+                "color": config.COLOR_ANOMALY
+            },
             hovertemplate=(
                 "<b> CORRELATION ANOMALY</b><br>"
                 "Date: %{x}<br>"
@@ -705,7 +714,7 @@ fig_rolling.update_layout(
     title=f"Rolling {correlation_window}-Day Correlation: {selected_pair_name}",
     xaxis_title="Date",
     yaxis_title="Correlation",
-    yaxis=dict(range=[-1.1, 1.1]),
+    yaxis={"range": [-1.1, 1.1]},
     hovermode="x unified"
 )
 
@@ -742,11 +751,11 @@ fig_scatter.add_trace(
         x=returns_a,
         y=returns_b,
         mode="markers",
-        marker=dict(
-            size=5,
-            color=config.COLOR_NORMAL,
-            opacity=0.6
-        ),
+        marker={
+            "size": 5,
+            "color": config.COLOR_NORMAL,
+            "opacity": 0.6
+        },
         hovertemplate=(
             f"{config.ASSETS.get(asset_a, asset_a)}: " + "%{x:.2f}%<br>"
             f"{config.ASSETS.get(asset_b, asset_b)}: " + "%{y:.2f}%<br>"

@@ -27,6 +27,9 @@ import time
 from typing import Any, Dict, List, Optional
 from io import BytesIO
 
+# Import logger
+from utils.logger import logger
+
 # Try to import kaleido for chart export
 try:
     import kaleido
@@ -51,19 +54,21 @@ except ImportError:
     DOTENV_AVAILABLE = False
     load_dotenv = None
 
-# Try to import config
+# Try to import config - only AI settings needed here
 try:
-    import config
+    from config import ai as config
 except ImportError:
     config = None
 
 # Try to import Gemini library
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
     GENAI_AVAILABLE = True
 except ImportError:
     GENAI_AVAILABLE = False
     genai = None
+    types = None
 
 
 # =============================================================================
@@ -71,7 +76,7 @@ except ImportError:
 # =============================================================================
 
 def fig_to_base64_image(
-    fig,
+    fig: Any,
     format: str = 'png',
     width: int = 1200,
     height: int = 800,
@@ -91,7 +96,7 @@ def fig_to_base64_image(
         Dict con mime_type e data, None se errore
     """
     if not KALEIDO_AVAILABLE:
-        print("[ChartExport] Kaleido not available. Cannot export chart.")
+        logger.warning("Kaleido not available. Cannot export chart.")
         return None
     
     try:
@@ -116,7 +121,7 @@ def fig_to_base64_image(
         }
         
     except Exception as e:
-        print(f"[ChartExport] Error converting figure: {e}")
+        logger.error(f"Error converting figure to image: {e}")
         return None
 
 
@@ -144,7 +149,7 @@ def prepare_multimodal_content(
     for i, img_data in enumerate(chart_images):
         if img_data and 'mime_type' in img_data and 'data' in img_data:
             # Gemini accetta dict con mime_type e data
-            parts.append({
+            parts.append({ # type: ignore
                 "mime_type": img_data["mime_type"],
                 "data": img_data["data"]
             })
@@ -237,14 +242,14 @@ class GeminiAssistant:
     - Error handling and fallback modes
     
     Attributes:
-        model: The Gemini model instance (or None in mock mode)
+        client: The Gemini client instance (or None in mock mode)
         api_key_set: Whether a valid API key is configured
         history: List of conversation messages
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the Gemini assistant with configuration from config.py or defaults."""
-        self.model = None
+        self.client = None
         self.api_key_set = False
         self.history: List[Dict[str, str]] = []
         
@@ -265,7 +270,7 @@ class GeminiAssistant:
         
         # Load .env file if available
         if DOTENV_AVAILABLE:
-            load_dotenv()
+            load_dotenv() # type: ignore
         
         api_key = os.environ.get('GEMINI_API_KEY', '')
         
@@ -273,24 +278,17 @@ class GeminiAssistant:
             return
         
         try:
-            genai.configure(api_key=api_key)
+            # Create client with API key
+            self.client = genai.Client(api_key=api_key) # type: ignore
             
-            # Create model with generation config
-            generation_config = genai.types.GenerationConfig(
-                max_output_tokens=self.max_tokens,
-                temperature=self.temperature,
-            )
-            
-            self.model = genai.GenerativeModel(
-                model_name=self.model_name,
-                generation_config=generation_config,
-            )
+            # Store model name for generate_content calls
+            self.model_name_for_api = self.model_name
             
             self.api_key_set = True
             
         except Exception as e:
-            print(f"[GeminiAssistant] API initialization error: {e}")
-            self.model = None
+            logger.error(f"Gemini API initialization failed: {e}")
+            self.client = None
             self.api_key_set = False
     
     def send_message(
@@ -313,7 +311,7 @@ class GeminiAssistant:
             The assistant's response text
         """
         # Use mock mode if API not available
-        if not self.api_key_set or self.model is None:
+        if not self.api_key_set or self.client is None:
             return self._get_mock_response(question)
         
         try:
@@ -339,8 +337,18 @@ class GeminiAssistant:
                 # Text-only mode
                 content = prompt
             
-            # Send to Gemini
-            response = self.model.generate_content(content)
+            # Send to Gemini with new API
+            config = types.GenerateContentConfig( # type: ignore
+                temperature=self.temperature,
+                max_output_tokens=self.max_tokens,
+                system_instruction=self.system_prompt
+            )
+            
+            response = self.client.models.generate_content(
+                model=self.model_name_for_api,
+                contents=content,
+                config=config
+            )
             
             # Extract text from response
             if response and response.text:
@@ -621,7 +629,7 @@ def is_gemini_available() -> bool:
         True if API is ready, False otherwise
     """
     assistant = get_assistant()
-    return assistant.api_key_set and assistant.model is not None
+    return assistant.api_key_set and assistant.client is not None
 
 
 def get_gemini_status() -> Dict[str, Any]:
@@ -654,7 +662,7 @@ def build_single_asset_context(
     price_stats: Dict[str, Any],
     anomaly_counts: Dict[str, int],
     anomaly_details: List[Dict[str, Any]],
-    zscore_current: Optional[Dict[str, float]] = None,
+    zscore_current: Optional[Dict[str, str]] = None,
     volume_stats: Optional[Dict[str, Any]] = None,
     volatility_stats: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:

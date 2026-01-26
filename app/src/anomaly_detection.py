@@ -9,16 +9,22 @@ This module implements anomaly detection techniques:
 All thresholds are configurable via config.py
 """
 
-import os
-import sys
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
-# Add parent directory to path for config import
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import config
+# Import only what we need from config
+from config.anomaly import (
+    ZSCORE_WARNING_THRESHOLD,
+    ZSCORE_ANOMALY_THRESHOLD,
+    PERCENTILE_LOW,
+    PERCENTILE_HIGH,
+    PCT_CHANGE_THRESHOLD_DAILY,
+    PCT_CHANGE_THRESHOLD_MINUTE,
+    WINDOW_SIZE_MINUTE,
+)
+from config.data import COLUMNS
 
 
 # =============================================================================
@@ -50,7 +56,7 @@ def calculate_zscore_batch(series: pd.Series) -> pd.Series:
     return (series - mean) / std
 
 
-def calculate_zscore_rolling(series: pd.Series, window: int = None) -> pd.Series:
+def calculate_zscore_rolling(series: pd.Series, window: Optional[int] = None) -> pd.Series:
     """
     Calculate Z-score using rolling window (streaming mode).
     
@@ -67,7 +73,7 @@ def calculate_zscore_rolling(series: pd.Series, window: int = None) -> pd.Series
         Series with rolling Z-score values
     """
     if window is None:
-        window = config.WINDOW_SIZE_MINUTE
+        window = WINDOW_SIZE_MINUTE
     
     rolling_mean = series.rolling(window=window, min_periods=1).mean()
     rolling_std = series.rolling(window=window, min_periods=1).std()
@@ -87,8 +93,8 @@ def calculate_zscore_rolling(series: pd.Series, window: int = None) -> pd.Series
 
 def calculate_percentile_bounds(
     series: pd.Series, 
-    low_pct: float = None, 
-    high_pct: float = None
+    low_pct: Optional[float] = None, 
+    high_pct: Optional[float] = None
 ) -> Tuple[float, float]:
     """
     Calculate percentile bounds for anomaly detection.
@@ -102,9 +108,9 @@ def calculate_percentile_bounds(
         Tuple of (lower_bound, upper_bound)
     """
     if low_pct is None:
-        low_pct = config.PERCENTILE_LOW
+        low_pct = PERCENTILE_LOW
     if high_pct is None:
-        high_pct = config.PERCENTILE_HIGH
+        high_pct = PERCENTILE_HIGH
     
     lower_bound = np.percentile(series.dropna(), low_pct)
     upper_bound = np.percentile(series.dropna(), high_pct)
@@ -114,8 +120,8 @@ def calculate_percentile_bounds(
 
 def detect_percentile_anomalies(
     series: pd.Series,
-    low_pct: float = None,
-    high_pct: float = None
+    low_pct: Optional[float] = None,
+    high_pct: Optional[float] = None
 ) -> pd.Series:
     """
     Detect anomalies based on percentile thresholds.
@@ -156,7 +162,7 @@ def calculate_percentage_change(series: pd.Series) -> pd.Series:
 
 def detect_pct_change_anomalies(
     series: pd.Series, 
-    threshold: float = None,
+    threshold: Optional[float] = None,
     granularity: str = "daily"
 ) -> pd.Series:
     """
@@ -172,9 +178,9 @@ def detect_pct_change_anomalies(
     """
     if threshold is None:
         if granularity == "minute":
-            threshold = config.PCT_CHANGE_THRESHOLD_MINUTE
+            threshold = PCT_CHANGE_THRESHOLD_MINUTE
         else:
-            threshold = config.PCT_CHANGE_THRESHOLD_DAILY
+            threshold = PCT_CHANGE_THRESHOLD_DAILY
     
     pct_change = calculate_percentage_change(series)
     
@@ -195,8 +201,8 @@ def calculate_volatility(df: pd.DataFrame) -> pd.Series:
     Returns:
         Series with volatility values
     """
-    high_col = config.COLUMNS["high"]
-    low_col = config.COLUMNS["low"]
+    high_col = COLUMNS["high"]
+    low_col = COLUMNS["low"]
     
     return df[high_col] - df[low_col]
 
@@ -217,9 +223,9 @@ def classify_zscore(zscore: float) -> str:
     """
     abs_z = abs(zscore)
     
-    if abs_z >= config.ZSCORE_ANOMALY_THRESHOLD:
+    if abs_z >= ZSCORE_ANOMALY_THRESHOLD:
         return "anomaly"
-    elif abs_z >= config.ZSCORE_WARNING_THRESHOLD:
+    elif abs_z >= ZSCORE_WARNING_THRESHOLD:
         return "warning"
     else:
         return "normal"
@@ -244,7 +250,7 @@ def classify_zscore_series(zscore_series: pd.Series) -> pd.Series:
 
 def detect_anomalies(
     df: pd.DataFrame, 
-    zscore_threshold: float = None,
+    zscore_threshold: Optional[float] = None,
     mode: str = "batch"
 ) -> pd.DataFrame:
     """
@@ -269,14 +275,14 @@ def detect_anomalies(
         DataFrame with added anomaly columns
     """
     if zscore_threshold is None:
-        zscore_threshold = config.ZSCORE_ANOMALY_THRESHOLD
+        zscore_threshold = ZSCORE_ANOMALY_THRESHOLD
     
     # Create a copy to avoid modifying original
     result = df.copy()
     
-    # Get column names from config
-    close_col = config.COLUMNS["close"]
-    volume_col = config.COLUMNS["volume"]
+    # Get column names
+    close_col = COLUMNS["close"]
+    volume_col = COLUMNS["volume"]
     
     # Calculate volatility
     result["volatility"] = calculate_volatility(result)
@@ -333,8 +339,8 @@ def get_anomaly_table(df: pd.DataFrame) -> pd.DataFrame:
     """
     anomalies = []
     
-    close_col = config.COLUMNS["close"]
-    volume_col = config.COLUMNS["volume"]
+    close_col = COLUMNS["close"]
+    volume_col = COLUMNS["volume"]
     
     for idx, row in df.iterrows():
         pct_val = row.get("pct_change", None)
@@ -426,7 +432,7 @@ def get_zscore_statistics(df: pd.DataFrame) -> Dict[str, Dict[str, float]]:
     return stats
 
 
-def get_threshold_lines(threshold: float = None) -> Dict[str, float]:
+def get_threshold_lines(threshold: Optional[float] = None) -> Dict[str, float]:
     """
     Get threshold values for plotting.
     
@@ -437,9 +443,9 @@ def get_threshold_lines(threshold: float = None) -> Dict[str, float]:
         Dictionary with threshold values
     """
     if threshold is None:
-        threshold = config.ZSCORE_ANOMALY_THRESHOLD
+        threshold = ZSCORE_ANOMALY_THRESHOLD
     
-    warning = config.ZSCORE_WARNING_THRESHOLD
+    warning = ZSCORE_WARNING_THRESHOLD
     
     return {
         "anomaly_upper": threshold,

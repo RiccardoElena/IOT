@@ -7,16 +7,11 @@ This file sets up the page configuration and navigation structure.
 Run with: streamlit run app.py
 """
 
-import os
-import sys
-
 import streamlit as st
 
-# Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-
 import config
-from data_loader import list_available_assets, load_single_asset
+from src.data_loader import list_available_assets, load_single_asset
+from utils.logger import logger
 
 
 # =============================================================================
@@ -169,13 +164,14 @@ try:
     df = load_single_asset(test_asset, test_granularity)
     record_count = len(df)
     
-    st.toast(f"Data loaded successfully!", icon="✅")
+    st.toast("Data loaded successfully!", icon="✅")
     
     # Show sample
     with st.expander("Preview data"):
         st.dataframe(df.head(10), width='stretch')
         
 except FileNotFoundError as e:
+    logger.warning(f"Data files not found: {e}")
     st.warning(f"""
     ⚠️ **Data files not found**
     
@@ -196,6 +192,7 @@ except FileNotFoundError as e:
     """)
     
 except Exception as e:
+    logger.error(f"Error loading data: {e}", exc_info=True)
     st.error(f"❌ Error loading data: {e}")
 
 

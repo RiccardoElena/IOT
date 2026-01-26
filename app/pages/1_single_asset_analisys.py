@@ -14,19 +14,16 @@ For minute data: weekly navigation for performance optimization.
 Run with: streamlit run app.py (then navigate to this page)
 """
 
-import os
-import sys
 from datetime import timedelta
+from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import config
+from utils.logger import logger
 
 # Import UI components
 from components import (
@@ -68,7 +65,7 @@ st.set_page_config(
 title("Single Asset Analysis", "Explore individual asset data with anomaly detection.")
 
 
-def reset_zoom():
+def reset_zoom() -> None:
     """Reset zoom state when asset or granularity changes."""
     st.session_state.selected_zoom_range = None
     st.session_state.anomaly_selector = None
@@ -79,31 +76,31 @@ def reset_zoom():
 # =============================================================================
 
 @st.cache_data
-def load_data_full(asset: str, granularity: str):
+def load_data_full(asset: str, granularity: str) -> pd.DataFrame:
     """Load full dataset for an asset."""
     return load_single_asset(asset, granularity)
 
 
 @st.cache_data
-def get_date_bounds(asset: str, granularity: str):
+def get_date_bounds(asset: str, granularity: str) -> Tuple[pd.Timestamp, pd.Timestamp]:
     """Get min/max dates for a dataset without loading all data."""
     return get_date_range_fast(asset, granularity)
 
 
 @st.cache_data
-def process_anomalies(df: pd.DataFrame, threshold: float):
+def process_anomalies(df: pd.DataFrame, threshold: float) -> pd.DataFrame:
     """Run anomaly detection on data."""
     return detect_anomalies(df, zscore_threshold=threshold, mode="batch")
 
 
 @st.cache_data
-def get_available_weeks(asset: str, granularity: str):
+def get_available_weeks(asset: str, granularity: str) -> List[Dict[str, Any]]:
     """Get list of available weeks for minute data."""
     df = load_single_asset(asset, granularity)
     
-    dates = pd.Series(df.index.date).unique()
-    min_date = min(dates)
-    max_date = max(dates)
+    dates = pd.to_datetime(df.index).date
+    min_date = dates.min()
+    max_date = dates.max()
     
     weeks = []
     current_start = min_date
@@ -186,6 +183,7 @@ try:
     min_date = min_date_ts.date()
     max_date = max_date_ts.date()
 except FileNotFoundError as e:
+    logger.error(f"Data file not found: {e}")
     st.error(f"""
     **Data file not found!**
     
@@ -196,6 +194,7 @@ except FileNotFoundError as e:
     """)
     st.stop()
 except Exception as e:
+    logger.error(f"Error reading data: {e}", exc_info=True)
     st.error(f"Error reading data: {e}")
     st.stop()
 
@@ -403,11 +402,11 @@ if show_anomalies:
                 x=anomaly_data.index,
                 y=anomaly_data[high_col] * 1.01,
                 mode="markers",
-                marker=dict(
-                    symbol="triangle-down",
-                    size=config.MARKER_SIZE_ANOMALY,
-                    color=config.COLOR_ANOMALY
-                ),
+                marker={
+                    "symbol": "triangle-down",
+                    "size": config.MARKER_SIZE_ANOMALY,
+                    "color": config.COLOR_ANOMALY
+                },
                 name="Price Anomaly",
                 hovertemplate=(
                     "<b>⚠️ ANOMALY</b><br>"
@@ -447,7 +446,7 @@ fig_main.add_trace(
         y=df_processed["volatility_range"],
         mode="lines",
         name="Volatility",
-        line=dict(color=config.COLOR_NORMAL, width=2),
+        line={"color": config.COLOR_NORMAL, "width": 2},
         fill='tozeroy',
         fillcolor='rgba(100, 149, 237, 0.2)',
         hovertemplate="Time: %{x}<br>Range: $%{y:.2f}<extra></extra>"
@@ -462,11 +461,11 @@ if show_anomalies and vol_anomaly_mask.any():
             y=df_processed[vol_anomaly_mask]["volatility_range"],
             mode="markers",
             name="Volatility Anomaly",
-            marker=dict(
-                size=config.MARKER_SIZE_ANOMALY,
-                color=config.COLOR_ANOMALY,
-                symbol="diamond"
-            ),
+            marker={
+                "size": config.MARKER_SIZE_ANOMALY,
+                "color": config.COLOR_ANOMALY,
+                "symbol": "diamond"
+            },
             hovertemplate="<b>⚠️ VOLATILITY ANOMALY</b><br>Time: %{x}<br>Range: $%{y:.2f}<extra></extra>"
         ),
         row=3, col=1
@@ -485,7 +484,7 @@ if st.session_state.selected_zoom_range is not None:
 fig_main.update_layout(
     height=700,
     showlegend=True,
-    legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1),
+    legend={"orientation": "h", "yanchor": "bottom", "y": 1.05, "xanchor": "right", "x": 1},
     xaxis_rangeslider_visible=False,
     hovermode="x unified"
 )
@@ -530,7 +529,7 @@ if len(anomaly_df) > 0:
         for i, row in anomaly_df.iterrows()
     ]
 
-    def on_anomaly_select():
+    def on_anomaly_select() -> None:
         """Callback when anomaly is selected."""
         selected = st.session_state.anomaly_selector
         
@@ -580,7 +579,7 @@ def create_zscore_chart(data: pd.Series, anomaly_mask: pd.Series) -> go.Figure:
             y=data.values,
             mode="lines",
             name="Z-Score",
-            line=dict(color=config.COLOR_NORMAL, width=1),
+            line={"color": config.COLOR_NORMAL, "width": 1},
             hovertemplate="Time: %{x}<br>Z-Score: %{y:.2f}σ<extra></extra>"
         )
     )
@@ -594,7 +593,7 @@ def create_zscore_chart(data: pd.Series, anomaly_mask: pd.Series) -> go.Figure:
                 y=anomaly_data.values,
                 mode="markers",
                 name="Anomaly",
-                marker=dict(size=config.MARKER_SIZE_ANOMALY, color=config.COLOR_ANOMALY),
+                marker={"size": config.MARKER_SIZE_ANOMALY, "color": config.COLOR_ANOMALY},
                 hovertemplate="<b>⚠️ ANOMALY</b><br>Time: %{x}<br>Z-Score: %{y:.2f}σ<extra></extra>"
             )
         )
@@ -619,9 +618,9 @@ def create_zscore_chart(data: pd.Series, anomaly_mask: pd.Series) -> go.Figure:
     fig.update_layout(
         height=350,
         showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02},
         hovermode="x unified",
-        margin=dict(t=10)  # Reduce top margin to eliminate title space
+        margin={"t": 10}  # Reduce top margin to eliminate title space
     )
     fig.update_xaxes(title_text="Date")
     fig.update_yaxes(title_text="Z-Score")

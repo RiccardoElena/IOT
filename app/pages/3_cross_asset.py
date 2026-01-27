@@ -29,10 +29,10 @@ import config
 from utils.logger import logger
 
 # Import UI components including Gemini sidebar
-from components import (
+from pages.components import (
     footer, 
     title,
-    render_gemini_sidebar,
+    render_sidebar,
     render_chart_add_button,
 )
 
@@ -269,7 +269,6 @@ for i, asset_a in enumerate(assets_list):
         if i < j:  # Only upper triangle (avoid duplicates)
             pair_key = f"{config.ASSETS.get(asset_a, asset_a)} vs {config.ASSETS.get(asset_b, asset_b)}"
             corr_value = corr_matrix_pre.loc[asset_a, asset_b]
-            # type: ignore - correlation matrix contains only floats
             correlation_dict[pair_key] = round(float(corr_value.item() if hasattr(corr_value, 'item') else corr_value), 3)  # type: ignore
 
 # Calculate systemic events summary
@@ -299,7 +298,7 @@ gemini_context = build_cross_asset_context(
 
 # Render Gemini sidebar with cross-asset context
 with st.sidebar:
-    render_gemini_sidebar(
+    render_sidebar(
         page_context=gemini_context,
         page_type="cross_asset"
     )

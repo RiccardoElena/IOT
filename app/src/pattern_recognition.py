@@ -340,7 +340,7 @@ def detect_double_top(
     prices = df[close_col]
     smoothed = smooth_prices(prices, window=5)
     
-    patterns = []
+    patterns: List[Dict] = []
     
     # Find peaks and troughs with permissive settings
     peaks = find_local_peaks(smoothed, distance=min_distance, prominence_pct=prominence_pct)
@@ -420,7 +420,7 @@ def detect_double_bottom(
     prices = df[close_col]
     smoothed = smooth_prices(prices, window=5)
     
-    patterns = []
+    patterns: List[Dict] =  []
     
     peaks = find_local_peaks(smoothed, distance=min_distance, prominence_pct=prominence_pct)
     troughs = find_local_troughs(smoothed, distance=min_distance, prominence_pct=prominence_pct)
@@ -498,7 +498,7 @@ def detect_head_and_shoulders(
     prices = df[close_col]
     smoothed = smooth_prices(prices, window=5)
     
-    patterns = []
+    patterns: List[Dict] =  []
     
     peaks = find_local_peaks(smoothed, distance=min_distance, prominence_pct=prominence_pct)
     troughs = find_local_troughs(smoothed, distance=min_distance, prominence_pct=prominence_pct)
@@ -586,7 +586,7 @@ def detect_cup_and_handle(
     prices = df[close_col]
     smoothed = smooth_prices(prices, window=5)
     
-    patterns = []
+    patterns: List[Dict] =  []
     
     # Find peaks (potential cup rims)
     peaks = find_local_peaks(smoothed, distance=lookback // 4, prominence_pct=0.01)
@@ -711,7 +711,7 @@ def detect_all_chart_patterns(
     Returns:
         List of all detected patterns
     """
-    patterns = []
+    patterns: List[Dict] =  []
     
     min_distance = max(3, lookback // 10)
     
@@ -773,7 +773,7 @@ def get_pattern_table(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         DataFrame with pattern details
     """
-    patterns = []
+    patterns: List[Dict] =  []
     close_col = COLUMNS["close"]
     
     pattern_cols = {

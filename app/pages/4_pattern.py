@@ -12,7 +12,7 @@ Gemini AI assistant provides contextual help on pattern interpretation.
 
 Run with: streamlit run app.py (then navigate to this page)
 """
-from typing import Tuple
+from typing import Tuple, Dict, List, Any
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -21,10 +21,10 @@ import config
 from utils.logger import logger
 
 # Import UI components including Gemini sidebar
-from components import (
+from pages.components import (
     footer,
     title,
-    render_gemini_sidebar,
+    render_sidebar,
     render_chart_add_button,
 )
 
@@ -226,7 +226,7 @@ gemini_context = build_pattern_context(
 # Render Gemini sidebar with pattern context
 with st.sidebar:
     st.markdown("---")
-    render_gemini_sidebar(
+    render_sidebar(
         page_context=gemini_context,
         page_type="patterns"
     )
@@ -421,7 +421,7 @@ if len(chart_patterns) > 0:
     }
     
     # Group patterns by type
-    patterns_by_type = {}
+    patterns_by_type: Dict[str, List[Dict[str, Any]]] = {}
     for p in chart_patterns:
         ptype = p["type"]
         if ptype not in patterns_by_type:
@@ -563,7 +563,7 @@ all_pattern_counts = {
     "Engulfing Bearish": pattern_summary["engulfing_bearish"]
 }
 
-chart_type_counts = {}
+chart_type_counts: Dict[str, int] = {}
 for p in chart_patterns:
     ptype = p["type"]
     chart_type_counts[ptype] = chart_type_counts.get(ptype, 0) + 1

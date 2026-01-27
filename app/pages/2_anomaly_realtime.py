@@ -25,10 +25,10 @@ import config
 from utils.logger import logger
 
 # Import UI components including Gemini sidebar
-from components import (
+from pages.components import (
     title,
     footer,
-    render_gemini_sidebar,
+    render_sidebar,
     render_chart_add_button,
 )
 
@@ -266,7 +266,7 @@ gemini_context = build_realtime_context(
 
 # Render Gemini sidebar with real-time context
 with st.sidebar:
-    render_gemini_sidebar(
+    render_sidebar(
         page_context=gemini_context,
         page_type="realtime"
     )
@@ -582,7 +582,6 @@ def create_combined_chart(current_idx: int, anomalies: List[Dict[str, Any]]) -> 
     fig.update_xaxes(title_text="Time", row=3, col=1)
     
     # Style subplot titles
-    # type: ignore - annotations exists at runtime from make_subplots
     annotations = list(fig.layout.annotations) if hasattr(fig.layout, 'annotations') else []  # type: ignore
     for annotation in annotations:
         if hasattr(annotation, 'text') and annotation.text in ["Price (Streaming)", "Rolling Z-Score", "Volume"]:

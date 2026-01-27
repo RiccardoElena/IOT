@@ -26,10 +26,10 @@ import config
 from utils.logger import logger
 
 # Import UI components
-from components import (
+from pages.components import (
     footer,
     title,
-    render_gemini_sidebar,
+    render_sidebar,
     render_chart_add_button,
 )
 
@@ -344,7 +344,7 @@ gemini_context = build_single_asset_context(
 # =============================================================================
 
 with st.sidebar:
-    render_gemini_sidebar(
+    render_sidebar(
         page_context=gemini_context,
         page_type="single_asset"
     )

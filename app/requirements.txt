@@ -65,3 +65,7 @@ loguru>=0.7.0
 # Kaleido: Export Plotly figures to static images
 # Required for sending charts to Gemini Vision API
 kaleido>=0.2.1
+
+# Development utilities
+# Watchdog: optional file-system watcher used for development auto-reload tooling
+watchdog>=3.0.0

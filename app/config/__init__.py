@@ -125,6 +125,12 @@ from .logging import (
     LOG_FORMAT_PRODUCTION,
 )
 
+# Import all data attachment configuration
+from .attachment import (
+    DATA_OPTIONS,
+    PAGE_SUGGESTIONS
+)
+
 # Export all for 'from config import *' (though not recommended)
 __all__ = [
     # Assets
@@ -176,4 +182,7 @@ __all__ = [
     'LOG_LEVEL', 'ENABLE_FILE_LOGGING', 'LOG_FILE_PATH',
     'LOG_FILE_ROTATION', 'LOG_FILE_RETENTION', 'LOG_FILE_COMPRESSION',
     'LOG_FORMAT', 'LOG_FORMAT_PRODUCTION',
+
+    # Attachment
+    'DATA_OPTIONS', 'PAGE_SUGGESTIONS'
 ]

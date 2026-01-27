@@ -21,11 +21,8 @@ Usage:
 """
 
 import os
-import json
 import base64
-import time
 from typing import Any, Dict, List, Optional
-from io import BytesIO
 
 # Import logger
 from utils.logger import logger
@@ -38,27 +35,16 @@ except ImportError:
     KALEIDO_AVAILABLE = False
     kaleido = None
 
-# Try to import PIL for image processing
-try:
-    from PIL import Image
-    PIL_AVAILABLE = True
-except ImportError:
-    PIL_AVAILABLE = False
-    Image = None
-
 # Try to import python-dotenv for .env file support
 try:
     from dotenv import load_dotenv
     DOTENV_AVAILABLE = True
 except ImportError:
     DOTENV_AVAILABLE = False
-    load_dotenv = None
 
 # Try to import config - only AI settings needed here
-try:
-    from config import ai as config
-except ImportError:
-    config = None
+from config import ai as config
+
 
 # Try to import Gemini library
 try:
@@ -67,8 +53,6 @@ try:
     GENAI_AVAILABLE = True
 except ImportError:
     GENAI_AVAILABLE = False
-    genai = None
-    types = None
 
 
 # =============================================================================
@@ -160,73 +144,6 @@ def prepare_multimodal_content(
     
     return parts
 
-
-# =============================================================================
-# CONFIGURATION DEFAULTS
-# =============================================================================
-
-DEFAULT_MODEL = "gemini-2.0-flash"
-DEFAULT_MAX_TOKENS = 1024
-DEFAULT_TEMPERATURE = 0.7
-DEFAULT_HISTORY_LENGTH = 14
-
-# System prompt in Italian for financial analysis assistant
-DEFAULT_SYSTEM_PROMPT = """Sei un assistente esperto di analisi finanziaria e IoT integrato in una dashboard di analytics.
-
-CONTESTO APPLICAZIONE:
-Questa è una dashboard universitaria che analizza dati finanziari (S&P 500, Gold, Oil, USD Index, Bitcoin) 
-usando tecniche IoT per il rilevamento di anomalie e pattern recognition.
-
-LE TUE COMPETENZE:
-1. **Z-Score e Anomalie**: Sai spiegare come il Z-score misura le deviazioni standard dalla media.
-   - Z > 3 o Z < -3 indica anomalie significative
-   - Puoi interpretare cosa significa un'anomalia di prezzo vs volume vs volatilità
-
-2. **Sliding Window**: Comprendi l'elaborazione real-time con finestre mobili tipica dei sistemi IoT.
-
-3. **Correlazioni**: Sai interpretare matrici di correlazione e identificare relazioni tra asset.
-   - Correlazione positiva: asset si muovono insieme
-   - Correlazione negativa: asset si muovono in direzioni opposte
-   - Gold e USD tipicamente negativamente correlati
-
-4. **Pattern Recognition**: Conosci i pattern candlestick (Doji, Hammer, Engulfing) e chart patterns 
-   (Double Top/Bottom, Head & Shoulders, Cup & Handle).
-
-LINEE GUIDA RISPOSTE:
-- Rispondi SEMPRE in italiano
-- Sii conciso ma informativo (max 200 parole per risposta normale)
-- Usa emoji per rendere le risposte più leggibili
-- Quando ricevi dati contestuali, analizzali specificamente
-- Se non hai dati sufficienti, chiedi all'utente di selezionare più opzioni nel menu "Dati da allegare"
-
-COSA NON FARE:
-- NON dare consigli di investimento specifici ("compra", "vendi")
-- NON fare previsioni sul prezzo futuro
-- NON inventare dati che non ti sono stati forniti
-- Se non sai qualcosa, ammettilo onestamente
-
-Sei pronto ad aiutare con l'analisi dei dati finanziari!"""
-
-# Mock response for testing without API key
-MOCK_RESPONSE = """**Modalità Demo**
-
-Gemini non è configurato. Per attivare l'assistente:
-
-1. Ottieni una API key gratuita da [Google AI Studio](https://aistudio.google.com/)
-2. Imposta la variabile d'ambiente:
-   ```
-   export GEMINI_API_KEY="la-tua-chiave"
-   ```
-3. Riavvia l'applicazione
-
-La tua domanda era: "{question}"
-
-In modalità demo, posso comunque spiegarti i concetti base:
-- **Z-Score**: Misura quante deviazioni standard un valore è dalla media
-- **Anomalia**: Un valore con |Z| > 3 (molto raro, ~0.3% probabilità)
-- **Correlazione**: Misura da -1 a +1 quanto due asset si muovono insieme"""
-
-
 # =============================================================================
 # GEMINI ASSISTANT CLASS
 # =============================================================================
@@ -254,11 +171,11 @@ class GeminiAssistant:
         self.history: List[Dict[str, str]] = []
         
         # Load configuration
-        self.model_name = getattr(config, 'GEMINI_MODEL', DEFAULT_MODEL) if config else DEFAULT_MODEL
-        self.max_tokens = getattr(config, 'GEMINI_MAX_TOKENS', DEFAULT_MAX_TOKENS) if config else DEFAULT_MAX_TOKENS
-        self.temperature = getattr(config, 'GEMINI_TEMPERATURE', DEFAULT_TEMPERATURE) if config else DEFAULT_TEMPERATURE
-        self.max_history = getattr(config, 'GEMINI_HISTORY_LENGTH', DEFAULT_HISTORY_LENGTH) if config else DEFAULT_HISTORY_LENGTH
-        self.system_prompt = getattr(config, 'GEMINI_SYSTEM_PROMPT', DEFAULT_SYSTEM_PROMPT) if config else DEFAULT_SYSTEM_PROMPT
+        self.model_name = config.GEMINI_MODEL
+        self.max_tokens = config.GEMINI_MAX_TOKENS
+        self.temperature = config.GEMINI_TEMPERATURE
+        self.max_history = config.GEMINI_HISTORY_LENGTH
+        self.system_prompt = config.GEMINI_SYSTEM_PROMPT
         
         # Initialize API if available
         self._initialize_api()
@@ -272,7 +189,7 @@ class GeminiAssistant:
         if DOTENV_AVAILABLE:
             load_dotenv() # type: ignore
         
-        api_key = os.environ.get('GEMINI_API_KEY', '')
+        api_key = os.environ.get(config.GEMINI_API_KEY_ENV, '')
         
         if not api_key:
             return
@@ -538,7 +455,7 @@ class GeminiAssistant:
         Returns:
             Mock response string
         """
-        mock_template = getattr(config, 'GEMINI_MOCK_RESPONSE', MOCK_RESPONSE) if config else MOCK_RESPONSE
+        mock_template = getattr(config, 'GEMINI_MOCK_RESPONSE', MOCK_RESPONSE) if CONFIG_AVAILABLE else MOCK_RESPONSE # type: ignore
         return mock_template.format(question=question)
     
     def _handle_error(self, error: Exception) -> str:
@@ -868,3 +785,55 @@ def build_pattern_context(
         context["pattern_distribution"] = pattern_distribution
     
     return context
+
+def filter_context(
+    full_context: Dict[str, Any], 
+    selected_keys: List[str]
+) -> Dict[str, Any]:
+    """
+    Filter the full context to include only selected data sections.
+    
+    Always includes: page, asset, period, basic info
+    Conditionally includes: detailed statistics based on selection
+    
+    Args:
+        full_context: Complete page context dictionary
+        selected_keys: List of selected data option keys
+    
+    Returns:
+        Filtered context dictionary
+    """
+    # Base context always included
+    filtered = {
+        "page": full_context.get("page", "Unknown"),
+        "asset": full_context.get("asset", "Unknown"),
+        "asset_display": full_context.get("asset_display", "Unknown"),
+        "granularity": full_context.get("granularity", "daily"),
+        "period": full_context.get("period", {}),
+    }
+    
+    # Map of keys to context fields
+    key_mapping = {
+        "price_stats": "price_statistics",
+        "anomalies": "anomalies",
+        "zscore_details": "zscore_details",
+        "volume_stats": "volume_statistics",
+        "volatility_stats": "volatility_statistics",
+        "simulation_progress": "simulation",
+        "realtime_anomalies": "realtime_anomalies",
+        "window_stats": "window_statistics",
+        "correlation_matrix": "correlations",
+        "systemic_events": "systemic_events",
+        "pair_analysis": "pair_analysis",
+        "candlestick_patterns": "candlestick_patterns",
+        "chart_patterns": "chart_patterns",
+        "pattern_distribution": "pattern_distribution",
+    }
+    
+    for key in selected_keys:
+        if key in key_mapping:
+            field = key_mapping[key]
+            if field in full_context:
+                filtered[field] = full_context[field]
+    
+    return filtered

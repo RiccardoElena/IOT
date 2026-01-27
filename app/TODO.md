@@ -21,18 +21,18 @@
   - [x] Aggiungere try-catch consistenti
 - [x] **Aggiungere type hints mancanti**
   - [x] Completare hints in tutte le pagine
-  - Aggiungere `from __future__ import annotations` dove serve
-  - Configurare mypy per validazione
+  - [x] Aggiungere `from __future__ import annotations` dove serve
+  - [x] Configurare mypy per validazione
 
 ## FASE 2: Modularizzazione Components
 
-- [ ] **Dividere `components.py` in moduli**
-  - [ ] `src/ui/page_components.py` → title, footer
-  - [ ] `src/ui/gemini/chat_ui.py` → render_chat_messages, render_chat_input
-  - [ ] `src/ui/gemini/sidebar.py` → render_gemini_sidebar
-  - [ ] `src/ui/gemini/session_manager.py` → session state management
-  - [ ] `src/ui/gemini/chart_manager.py` → chart selection logic
-  - [ ] `src/ui/gemini/data_config.py` → DATA_OPTIONS, PAGE_SUGGESTIONS
+- [x] **Dividere `components.py` in moduli**
+  - [x] `src/ui/page_components.py` → title, footer
+  - [x] `src/ui/gemini/chat_ui.py` → render_chat_messages, render_chat_input
+  - [x] `src/ui/gemini/sidebar.py` → render_gemini_sidebar
+  - [x] `src/ui/gemini/session_manager.py` → session state management
+  - [x] `src/ui/gemini/chart_manager.py` → chart selection logic
+  - [x] `src/ui/gemini/data_config.py` → DATA_OPTIONS, PAGE_SUGGESTIONS
 - [ ] **Estrarre logica session state**
   - [ ] Creare `src/state/session_manager.py`:
     - [ ] `class PageState` con metodi `init()`, `reset()`, `update()`

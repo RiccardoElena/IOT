@@ -4,6 +4,8 @@ UI configuration and constants.
 Page layout, colors, chart settings, and all visual parameters.
 """
 
+from typing import Literal
+
 # =============================================================================
 # PAGE CONFIGURATION
 # =============================================================================
@@ -24,7 +26,7 @@ PAGE_TYPES = [
 # Streamlit page configuration
 PAGE_TITLE = "IoT Financial Analytics"
 PAGE_ICON = ""
-LAYOUT = "wide"
+LAYOUT: Literal["centered", "wide"] = "wide"
 
 # =============================================================================
 # COLOR SCHEME

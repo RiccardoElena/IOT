@@ -10,7 +10,8 @@ Run with: streamlit run app.py
 import streamlit as st
 
 import config
-from src.data_loader import list_available_assets, load_single_asset
+from utils import list_available_assets
+from data import cached_load_single_asset
 from utils.logger import logger
 
 
@@ -161,7 +162,7 @@ try:
     test_asset = list_available_assets()[0]
     test_granularity = "daily"
     
-    df = load_single_asset(test_asset, test_granularity)
+    df = cached_load_single_asset(test_asset, test_granularity)
     record_count = len(df)
     
     st.toast("Data loaded successfully!", icon="✅")

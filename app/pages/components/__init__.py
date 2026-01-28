@@ -8,14 +8,14 @@ This package contains reusable Streamlit components for:
 - Sidebar
 """
 
-from .chat import render_sidebar
+from .chat import render_chat
 
 from .header_footer import *
 
 from .attachment import *
 
 __all__ = [
-    'render_sidebar',
+    'render_chat',
     'header_footer',
     'attachment',
 ]

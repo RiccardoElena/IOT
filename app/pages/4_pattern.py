@@ -24,17 +24,19 @@ from utils.logger import logger
 from pages.components import (
     footer,
     title,
-    render_sidebar,
+    render_chat,
     render_chart_add_button,
 )
 
-# Import data and pattern recognition modules
-from src.data_loader import (
-    filter_by_date_range,
+from utils import (
     get_asset_display_name,
-    get_date_range_fast,
-    load_single_asset,
+    filter_by_date_range,
 )
+
+from data import (
+    pattern_data
+)
+
 from src.pattern_recognition import (
     detect_all_candlestick_patterns,
     detect_all_chart_patterns,
@@ -115,32 +117,7 @@ with st.sidebar:
 # DATA LOADING
 # =============================================================================
 
-@st.cache_data
-def load_daily_data(asset: str) -> pd.DataFrame:
-    return load_single_asset(asset, "daily")
-
-
-@st.cache_data
-def get_date_bounds(asset: str) -> Tuple[pd.Timestamp, pd.Timestamp]:
-    return get_date_range_fast(asset, "daily")
-
-
-try:
-    with st.spinner("Loading data..."):
-        df = load_daily_data(selected_asset)
-        min_date_ts, max_date_ts = get_date_bounds(selected_asset)
-        min_date = min_date_ts.date()
-        max_date = max_date_ts.date()
-
-except FileNotFoundError as e:
-    logger.error(f"Data file not found: {e}")
-    st.error(f"Data file not found: {e}")
-    st.stop()
-except Exception as e:
-    logger.error(f"Error loading data: {e}", exc_info=True)
-    st.error(f"Error loading data: {e}")
-    st.stop()
-
+df, min_date, max_date = pattern_data(selected_asset)
 
 # =============================================================================
 # DATE RANGE SELECTION
@@ -226,7 +203,7 @@ gemini_context = build_pattern_context(
 # Render Gemini sidebar with pattern context
 with st.sidebar:
     st.markdown("---")
-    render_sidebar(
+    render_chat(
         page_context=gemini_context,
         page_type="patterns"
     )
@@ -309,16 +286,16 @@ for pattern_col, pattern_name in pattern_names.items():
     if pattern_col in df_patterns.columns:
         mask = df_patterns[pattern_col]
         if mask.any():
-            pattern_data = df_patterns[mask]
+            pattern = df_patterns[mask]
             
             if "Bullish" in pattern_name or pattern_name == "Hammer":
-                y_values = pattern_data[low_col] * 0.99
+                y_values = pattern[low_col] * 0.99
             else:
-                y_values = pattern_data[high_col] * 1.01
+                y_values = pattern[high_col] * 1.01
             
             fig_candle.add_trace(
                 go.Scatter(
-                    x=pattern_data.index,
+                    x=pattern.index,
                     y=y_values,
                     mode="markers",
                     name=pattern_name,
@@ -333,7 +310,7 @@ for pattern_col, pattern_name in pattern_names.items():
                         "Price: $%{customdata:.2f}<br>"
                         "<extra></extra>"
                     ),
-                    customdata=pattern_data[close_col]
+                    customdata=pattern[close_col]
                 )
             )
 

@@ -69,3 +69,5 @@ kaleido>=0.2.1
 # Development utilities
 # Watchdog: optional file-system watcher used for development auto-reload tooling
 watchdog>=3.0.0
+
+orjson>=3.9.1

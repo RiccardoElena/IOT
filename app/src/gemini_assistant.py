@@ -21,11 +21,14 @@ Usage:
 """
 
 import os
-import base64
 from typing import Any, Dict, List, Optional
+from PIL import Image
+from io import BytesIO
+import base64
 
 # Import logger
 from utils.logger import logger
+from utils.serialization import to_json_string
 
 # Try to import kaleido for chart export
 try:
@@ -58,6 +61,16 @@ except ImportError:
 # =============================================================================
 # CHART CONVERSION UTILITIES
 # =============================================================================
+
+def fig_to_png(fig:Any) -> Image.Image:
+    img_bytes = fig.to_image(
+        format="png",
+        width = 1200,
+        height= 800,
+        scale= 2.0
+    )
+    img = Image.open(BytesIO(img_bytes))
+    return img
 
 def fig_to_base64_image(
     fig: Any,
@@ -233,37 +246,22 @@ class GeminiAssistant:
         
         try:
             # Build the full prompt
-            prompt = self._build_prompt(question, page_context, history)
-            
-            # Prepare content (text-only or multimodal)
-            if chart_figures and len(chart_figures) > 0:
-                # Multimodal: convert charts to images
-                chart_images = []
-                for fig in chart_figures[:5]:  # Limit to 5 charts max
-                    img_data = fig_to_base64_image(fig)
-                    if img_data:
-                        chart_images.append(img_data)
-                
-                if len(chart_images) > 0:
-                    # Use multimodal content
-                    content = prepare_multimodal_content(prompt, chart_images)
-                else:
-                    # Fallback to text-only if conversion failed
-                    content = prompt
-            else:
-                # Text-only mode
-                content = prompt
-            
+            prompt_text = self._build_prompt(question, page_context, history, chart_figures)
+            content: List[str|Image.Image] = [fig_to_png(fig) for fig in (chart_figures or [])]
+            content+= [prompt_text] 
+
             # Send to Gemini with new API
             config = types.GenerateContentConfig( # type: ignore
                 temperature=self.temperature,
                 max_output_tokens=self.max_tokens,
                 system_instruction=self.system_prompt
             )
+
+            logger.info(f"{content}")
             
             response = self.client.models.generate_content(
                 model=self.model_name_for_api,
-                contents=content,
+                contents=content, # type: ignore
                 config=config
             )
             
@@ -280,7 +278,8 @@ class GeminiAssistant:
         self,
         question: str,
         page_context: Optional[Dict[str, Any]],
-        history: Optional[List[Dict[str, str]]]
+        history: Optional[List[Dict[str, str]]],
+        chart_figures: Optional[List] = None
     ) -> str:
         """
         Build the complete prompt with system instructions, context, and history.
@@ -295,136 +294,38 @@ class GeminiAssistant:
         """
         parts = []
         
-        # System prompt
-        parts.append(f"=== ISTRUZIONI SISTEMA ===\n{self.system_prompt}\n")
-        
         # Page context (if provided)
         if page_context:
-            context_str = self._format_context(page_context)
-            parts.append(f"=== CONTESTO DATI CORRENTI ===\n{context_str}\n")
-        
+            context_str = to_json_string(page_context)
+            parts.append("# CURRENT DATA CONTEXT\n")
+            parts.append(f"The data is provided in JSON format, please read it carefully before responding\n{context_str}\n")
+        # Prepare content (text-only or multimodal)
+        # if chart_figures and len(chart_figures) > 0:
+        #     # Multimodal: convert charts to images
+        #     chart_images = []
+        #     for fig in chart_figures[:5]:  # Limit to 5 charts max
+        #         img_data = fig_to_base64_image(fig)
+        #         if img_data:
+        #             chart_images.append(img_data)
+            
+        #     if len(chart_images) > 0:
+        #         # Use multimodal content
+        #         parts.append("Moreover, these base64 encoded charts are provided to help you analyze the data:\n")
+        #         parts.extend(to_json_string(x) for x in prepare_multimodal_content("", chart_images))
+
         # Conversation history (limited)
         if history:
             recent_history = history[-self.max_history:]
             if recent_history:
                 history_str = self._format_history(recent_history)
-                parts.append(f"=== CONVERSAZIONE PRECEDENTE ===\n{history_str}\n")
+                parts.append(f"# PREVIOUS CONVERSATION\n{history_str}\n")
         
         # Current question
-        parts.append(f"=== DOMANDA UTENTE ===\n{question}\n")
-        parts.append("=== TUA RISPOSTA ===")
+        parts.append(f"# USER QUESTION\n\n{question}\n")
+        parts.append("# YOUR ANSWER")
         
         return "\n".join(parts)
-    
-    def _format_context(self, context: Dict[str, Any]) -> str:
-        """
-        Format the page context as readable text for the LLM.
-        
-        Args:
-            context: Dictionary with page data
-        
-        Returns:
-            Formatted context string
-        """
-        lines = []
-        
-        # Basic info
-        lines.append(f"Pagina: {context.get('page', 'N/A')}")
-        lines.append(f"Asset: {context.get('asset_display', context.get('asset', 'N/A'))}")
-        lines.append(f"Granularità: {context.get('granularity', 'N/A')}")
-        
-        # Period
-        period = context.get('period', {})
-        if period:
-            lines.append(f"Periodo: {period.get('start', 'N/A')} → {period.get('end', 'N/A')}")
-            if 'total_records' in period:
-                lines.append(f"Record totali: {period['total_records']}")
-        
-        # Price statistics
-        price_stats = context.get('price_statistics', {})
-        if price_stats:
-            lines.append("\nSTATISTICHE PREZZO:")
-            for key, value in price_stats.items():
-                lines.append(f"  - {key}: {value}")
-        
-        # Anomalies
-        anomalies = context.get('anomalies', {})
-        if anomalies:
-            lines.append("\n⚠️ ANOMALIE RILEVATE:")
-            if 'counts' in anomalies:
-                counts = anomalies['counts']
-                lines.append(f"  - Prezzo: {counts.get('price', 0)}")
-                lines.append(f"  - Volume: {counts.get('volume', 0)}")
-                lines.append(f"  - Volatilità: {counts.get('volatility', 0)}")
-            if 'details' in anomalies and anomalies['details']:
-                lines.append("  Dettagli (ultimi 10):")
-                for a in anomalies['details'][:10]:
-                    lines.append(f"    • {a.get('date', 'N/A')}: {a.get('type', 'N/A')} (Z={a.get('zscore', 'N/A')})")
-        
-        # Z-Score details
-        zscore = context.get('zscore_details', {})
-        if zscore:
-            lines.append("\nZ-SCORE ATTUALI:")
-            for key, value in zscore.items():
-                lines.append(f"  - {key}: {value}")
-        
-        # Volume statistics
-        volume_stats = context.get('volume_statistics', {})
-        if volume_stats:
-            lines.append("\nSTATISTICHE VOLUME:")
-            for key, value in volume_stats.items():
-                lines.append(f"  - {key}: {value}")
-        
-        # Volatility statistics
-        volatility_stats = context.get('volatility_statistics', {})
-        if volatility_stats:
-            lines.append("\nSTATISTICHE VOLATILITÀ:")
-            for key, value in volatility_stats.items():
-                lines.append(f"  - {key}: {value}")
-        
-        # Simulation data (realtime page)
-        simulation = context.get('simulation', {})
-        if simulation:
-            lines.append("\nSIMULAZIONE:")
-            for key, value in simulation.items():
-                lines.append(f"  - {key}: {value}")
-        
-        # Correlations (cross-asset page)
-        correlations = context.get('correlations', {})
-        if correlations:
-            lines.append("\n🔗 CORRELAZIONI:")
-            if 'matrix' in correlations:
-                lines.append("  Matrice:")
-                for pair, corr in correlations['matrix'].items():
-                    lines.append(f"    • {pair}: {corr}")
-        
-        # Systemic events
-        systemic = context.get('systemic_events', {})
-        if systemic:
-            lines.append("\n🌐 EVENTI SISTEMICI:")
-            lines.append(f"  - Totale giorni: {systemic.get('total_days', 0)}")
-            lines.append(f"  - Soglia: {systemic.get('threshold', 3)} asset")
-            if 'events' in systemic:
-                lines.append("  Eventi recenti:")
-                for e in systemic['events'][:5]:
-                    lines.append(f"    • {e.get('date', 'N/A')}: {e.get('assets', 'N/A')}")
-        
-        # Candlestick patterns
-        candle_patterns = context.get('candlestick_patterns', {})
-        if candle_patterns:
-            lines.append("\n🕯️ PATTERN CANDLESTICK:")
-            for pattern, count in candle_patterns.items():
-                lines.append(f"  - {pattern}: {count}")
-        
-        # Chart patterns
-        chart_patterns = context.get('chart_patterns', [])
-        if chart_patterns:
-            lines.append("\nPATTERN GRAFICI:")
-            for p in chart_patterns[:5]:
-                lines.append(f"  - {p.get('type', 'N/A')}: {p.get('start_date', '')} → {p.get('end_date', '')} ({p.get('signal', '')})")
-        
-        return "\n".join(lines)
-    
+
     def _format_history(self, history: List[Dict[str, str]]) -> str:
         """
         Format conversation history for the prompt.
@@ -437,12 +338,12 @@ class GeminiAssistant:
         """
         lines = []
         for msg in history:
-            role = "Utente" if msg.get("role") == "user" else "Assistente"
+            role = "**User**" if msg.get("role") == "user" else "**Assistant**"
             content = msg.get("content", "")
             # Truncate long messages
             if len(content) > 300:
                 content = content[:300] + "..."
-            lines.append(f"{role}: {content}")
+            lines.append(f"\n{role}: {content}")
         return "\n".join(lines)
     
     def _get_mock_response(self, question: str) -> str:

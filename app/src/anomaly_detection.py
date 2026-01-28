@@ -381,7 +381,7 @@ def get_anomaly_table(df: pd.DataFrame) -> pd.DataFrame:
     
     result = pd.DataFrame(anomalies)
     # Set 1-based index
-    result.index = range(1, len(result) + 1)
+    result.index = list(range(1, len(result) + 1))
     
     return result
 

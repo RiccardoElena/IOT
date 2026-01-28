@@ -23,19 +23,22 @@ import streamlit as st
 
 import config
 from utils.logger import logger
+from utils.dates import filter_day_data
+from data import (
+    anomaly_realtime_data
+)
 
 # Import UI components including Gemini sidebar
 from pages.components import (
     title,
     footer,
-    render_sidebar,
+    render_chat,
     render_chart_add_button,
 )
 
 # Import data loader
-from src.data_loader import (
+from utils.dictionaries import (
     get_asset_display_name,
-    load_single_asset,
 )
 
 # Import Gemini context builder for this page
@@ -107,40 +110,7 @@ with st.sidebar:
 # DATA LOADING
 # =============================================================================
 
-@st.cache_data
-def load_minute_data(asset: str) -> pd.DataFrame:
-    return load_single_asset(asset, "minute")
-
-
-@st.cache_data
-def get_available_days(df: pd.DataFrame) -> List:
-    # Usa normalize() per ottenere solo le date, evitando l'accesso diretto a .date
-    dates = pd.DatetimeIndex(df.index).normalize().unique()
-    return sorted([d.date() for d in dates])
-
-
-@st.cache_data
-def filter_day_data(df: pd.DataFrame, selected_day) -> pd.DataFrame:
-    """Filter dataframe to a specific day - cached for performance."""
-    # Usa operazioni vettorizzate per massima performance
-    start = pd.Timestamp(selected_day)
-    end = start + pd.Timedelta(days=1)
-    return df[(df.index >= start) & (df.index < end)].copy()
-
-
-try:
-    with st.spinner("Loading minute data..."):
-        df_full = load_minute_data(selected_asset)
-        available_days = get_available_days(df_full)
-except FileNotFoundError as e:
-    logger.error(f"Data file not found: {e}")
-    st.error(f"Data file not found: {e}")
-    st.stop()
-except Exception as e:
-    logger.error(f"Error loading data: {e}", exc_info=True)
-    st.error(f"Error loading data: {e}")
-    st.stop()
-
+df_full, available_days = anomaly_realtime_data(selected_asset)
 
 # =============================================================================
 # DAY SELECTION
@@ -266,7 +236,7 @@ gemini_context = build_realtime_context(
 
 # Render Gemini sidebar with real-time context
 with st.sidebar:
-    render_sidebar(
+    render_chat(
         page_context=gemini_context,
         page_type="realtime"
     )

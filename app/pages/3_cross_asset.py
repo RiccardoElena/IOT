@@ -13,8 +13,6 @@ Gemini AI assistant provides contextual help on correlation interpretation.
 Run with: streamlit run app.py (then navigate to this page)
 """
 
-from typing import Any, Dict, List, Tuple
-
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -27,30 +25,29 @@ pd.set_option('future.no_silent_downcasting', True)
 
 import config
 from utils.logger import logger
+from data import (
+    cross_asset_data
+)
 
 # Import UI components including Gemini sidebar
 from pages.components import (
     footer, 
     title,
-    render_sidebar,
+    render_chat,
     render_chart_add_button,
 )
 
 # Import analysis modules
-from src.anomaly_detection import detect_anomalies
 from src.cross_asset import (
     analyze_asset_pair,
-    calculate_correlation_matrix,
     create_price_matrix_from_dict,
     format_pair_name,
     get_asset_pairs,
     get_typical_correlations,
     normalize_prices,
-)
-from src.data_loader import (
-    filter_by_date_range,
-    get_asset_display_name,
-    load_all_assets,
+    count_simultaneous_anomalies,
+    get_anomaly_details_by_date,
+    process_cross_asset_data,
 )
 
 # Import Gemini context builder for this page
@@ -70,54 +67,6 @@ st.set_page_config(
 title("Cross-Asset Analysis",
       """Analyze relationships between multiple assets: correlations,
       simultaneous movements, and systemic events.""")
-
-
-# =============================================================================
-# HELPER FUNCTIONS FOR CONSISTENT ANOMALY HANDLING
-# =============================================================================
-
-def get_anomaly_details_by_date(anomaly_flags: dict) -> pd.DataFrame:
-    """
-    Create a DataFrame with anomaly details for each date.
-    Ensures consistent handling of NaN values.
-    
-    Returns DataFrame with columns: date, count, assets_list, assets_str
-    """
-    # Create DataFrame from flags
-    anomaly_df = pd.DataFrame(anomaly_flags)
-    
-    # CRITICAL: Fill NaN with False BEFORE any operations
-    anomaly_df = anomaly_df.fillna(False).astype(bool)
-    
-    results = []
-    for timestamp in anomaly_df.index:
-        row = anomaly_df.loc[timestamp]
-        # Get list of assets with True
-        affected_assets = list(row[row].index)
-        
-        if len(affected_assets) > 0:
-            results.append({
-                "timestamp": timestamp,
-                "count": len(affected_assets),
-                "assets_list": affected_assets,
-                "assets_str": ", ".join([str(config.ASSETS.get(a, a)) for a in affected_assets])
-            })
-    
-    if not results:
-        return pd.DataFrame(columns=["timestamp", "count", "assets_list", "assets_str"])
-    
-    return pd.DataFrame(results).set_index("timestamp")
-
-
-def count_simultaneous_anomalies_consistent(anomaly_flags: dict) -> pd.Series:
-    """
-    Count simultaneous anomalies with consistent NaN handling.
-    """
-    anomaly_df = pd.DataFrame(anomaly_flags)
-    # CRITICAL: Same fillna as get_anomaly_details_by_date
-    anomaly_df = anomaly_df.fillna(False).astype(bool)
-    return anomaly_df.sum(axis=1)
-
 
 # =============================================================================
 # SIDEBAR - CONTROLS AND INFO
@@ -151,54 +100,9 @@ with st.sidebar:
 # DATA LOADING
 # =============================================================================
 
-@st.cache_data
-def load_all_daily_data() -> Dict[str, pd.DataFrame]:
-    """Load daily data for all assets."""
-    return load_all_assets("daily")
 
-
-@st.cache_data
-def process_cross_asset_data(
-    data_dict: Dict[str, pd.DataFrame],
-    start_date: str,
-    end_date: str,
-    zscore_threshold: float
-) -> Tuple[Dict[str, pd.DataFrame], pd.DataFrame, Dict[str, pd.Series]]:
-    """Process all assets for cross-asset analysis."""
-    
-    # Filter each asset by date range
-    filtered_data = {}
-    anomaly_flags = {}
-    
-    for asset, df in data_dict.items():
-        df_filtered = filter_by_date_range(df, start_date, end_date)
-        df_processed = detect_anomalies(df_filtered, zscore_threshold=zscore_threshold)
-        filtered_data[asset] = df_processed
-        anomaly_flags[asset] = df_processed["anomaly_any"]
-    
-    # Create price matrix
-    price_matrix = create_price_matrix_from_dict(filtered_data)
-    
-    return filtered_data, price_matrix, anomaly_flags
-
-
-# Load data
-try:
-    with st.spinner("Loading data for all assets..."):
-        all_data = load_all_daily_data()
-    
-    if len(all_data) == 0:
-        st.error("No data loaded. Please check that CSV files exist.")
-        st.stop()
-    
-    if len(all_data) < 2:
-        st.error("Need at least 2 assets for cross-asset analysis.")
-        st.stop()
-
-except Exception as e:
-    logger.error(f"Error loading data: {e}", exc_info=True)
-    st.error(f"Error loading data: {e}")
-    st.stop()
+with st.spinner("Loading cross-asset data..."):
+  all_data = cross_asset_data()
 
 
 # =============================================================================
@@ -298,7 +202,7 @@ gemini_context = build_cross_asset_context(
 
 # Render Gemini sidebar with cross-asset context
 with st.sidebar:
-    render_sidebar(
+    render_chat(
         page_context=gemini_context,
         page_type="cross_asset"
     )
@@ -445,7 +349,7 @@ with t_col1:
 
 # Use consistent functions for both chart and table
 anomaly_details = get_anomaly_details_by_date(anomaly_flags)
-anomaly_counts = count_simultaneous_anomalies_consistent(anomaly_flags)
+anomaly_counts = count_simultaneous_anomalies(anomaly_flags)
 
 # Create systemic mask
 systemic_mask = anomaly_counts >= systemic_threshold

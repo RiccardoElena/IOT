@@ -186,7 +186,6 @@ def _process_user_message(
     st.session_state.gemini_history.append(user_message)
     
     assistant = get_assistant() # type: ignore
-    
     with st.spinner("Gemini sta pensando..."):
         response = assistant.send_message(
             question=user_input,
@@ -214,7 +213,7 @@ def _process_user_message(
 # MAIN SIDEBAR RENDERING FUNCTION
 # =============================================================================
 
-def render_sidebar(
+def render_chat(
     page_context: Dict[str, Any],
     page_type: str = "single_asset"
 ) -> None:

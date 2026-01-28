@@ -14,38 +14,37 @@ For minute data: weekly navigation for performance optimization.
 Run with: streamlit run app.py (then navigate to this page)
 """
 
-from datetime import timedelta
-from typing import Any, Dict, List, Tuple
-
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
 import config
-from utils.logger import logger
+from data import (
+    single_asset_analisys_dates,
+    single_asset_analisys_data,
+
+)
 
 # Import UI components
 from pages.components import (
     footer,
     title,
-    render_sidebar,
+    render_chat,
     render_chart_add_button,
 )
 
 # Import analysis modules
 from src.anomaly_detection import (
     count_anomalies,
-    detect_anomalies,
     get_anomaly_table,
     get_threshold_lines,
 )
-from src.data_loader import (
-    filter_by_date_range,
+
+from utils import (
     get_asset_display_name,
-    get_date_range_fast,
     get_granularity_display_name,
-    load_single_asset,
+    get_weeks_in_range,
 )
 
 # Import Gemini context builder
@@ -69,56 +68,6 @@ def reset_zoom() -> None:
     """Reset zoom state when asset or granularity changes."""
     st.session_state.selected_zoom_range = None
     st.session_state.anomaly_selector = None
-
-
-# =============================================================================
-# DATA LOADING FUNCTIONS
-# =============================================================================
-
-@st.cache_data
-def load_data_full(asset: str, granularity: str) -> pd.DataFrame:
-    """Load full dataset for an asset."""
-    return load_single_asset(asset, granularity)
-
-
-@st.cache_data
-def get_date_bounds(asset: str, granularity: str) -> Tuple[pd.Timestamp, pd.Timestamp]:
-    """Get min/max dates for a dataset without loading all data."""
-    return get_date_range_fast(asset, granularity)
-
-
-@st.cache_data
-def process_anomalies(df: pd.DataFrame, threshold: float) -> pd.DataFrame:
-    """Run anomaly detection on data."""
-    return detect_anomalies(df, zscore_threshold=threshold, mode="batch")
-
-
-@st.cache_data
-def get_available_weeks(asset: str, granularity: str) -> List[Dict[str, Any]]:
-    """Get list of available weeks for minute data."""
-    df = load_single_asset(asset, granularity)
-    
-    dates = pd.to_datetime(df.index).date
-    min_date = dates.min()
-    max_date = dates.max()
-    
-    weeks = []
-    current_start = min_date
-    
-    while current_start <= max_date:
-        current_end = current_start + timedelta(days=6)
-        if current_end > max_date:
-            current_end = max_date
-        
-        weeks.append({
-            "start": current_start,
-            "end": current_end,
-            "label": f"{current_start.strftime('%Y-%m-%d')} → {current_end.strftime('%Y-%m-%d')}"
-        })
-        
-        current_start = current_end + timedelta(days=1)
-    
-    return weeks
 
 
 # =============================================================================
@@ -178,25 +127,10 @@ with st.sidebar:
 # DATE RANGE LOADING
 # =============================================================================
 
-try:
-    min_date_ts, max_date_ts = get_date_bounds(selected_asset, selected_granularity)
-    min_date = min_date_ts.date()
-    max_date = max_date_ts.date()
-except FileNotFoundError as e:
-    logger.error(f"Data file not found: {e}")
-    st.error(f"""
-    **Data file not found!**
-    
-    Please ensure the CSV file exists:
-    `data/{selected_granularity}/{config.FILE_NAMES[selected_asset]}`
-    
-    Error: {e}
-    """)
-    st.stop()
-except Exception as e:
-    logger.error(f"Error reading data: {e}", exc_info=True)
-    st.error(f"Error reading data: {e}")
-    st.stop()
+min_date, max_date = single_asset_analisys_dates(
+    selected_asset,
+    selected_granularity
+)
 
 
 # =============================================================================
@@ -208,7 +142,7 @@ st.markdown("### 📅 Date Range")
 if selected_granularity == "minute":
     st.info("⚠️ Minute data is limited to **one week at a time** for performance.")
     
-    weeks = get_available_weeks(selected_asset, selected_granularity)
+    weeks = get_weeks_in_range(min_date, max_date)
     
     selected_week = st.selectbox(
         "Select Week",
@@ -247,21 +181,13 @@ if start_date > end_date:
 # LOAD AND PROCESS DATA
 # =============================================================================
 
-try:
-    with st.spinner("Loading data..."):
-        df_full = load_data_full(selected_asset, selected_granularity)
-        df = filter_by_date_range(df_full, str(start_date), str(end_date))
-    
-    if len(df) == 0:
-        st.warning("No data available for selected date range.")
-        st.stop()
-    
-    with st.spinner("Detecting anomalies..."):
-        df_processed = process_anomalies(df.copy(), zscore_threshold)
-
-except Exception as e:
-    st.error(f"Error processing data: {e}")
-    st.stop()
+df_processed = single_asset_analisys_data(
+    selected_asset,
+    selected_granularity,
+    start_date,
+    end_date,
+    zscore_threshold
+)
 
 
 # =============================================================================
@@ -344,7 +270,7 @@ gemini_context = build_single_asset_context(
 # =============================================================================
 
 with st.sidebar:
-    render_sidebar(
+    render_chat(
         page_context=gemini_context,
         page_type="single_asset"
     )

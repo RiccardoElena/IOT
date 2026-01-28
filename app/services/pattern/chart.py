@@ -1,44 +1,12 @@
-"""
-Pattern Recognition Module for IoT Financial Data Analytics.
-
-This module implements pattern recognition techniques:
-
-Candlestick Patterns (1-2 candles):
-- Doji: Indecision pattern
-- Hammer: Bullish reversal
-- Engulfing Bullish: Bullish reversal
-- Engulfing Bearish: Bearish reversal
-
-Chart Patterns (multi-candle):
-- Double Top: Bearish reversal (M shape)
-- Double Bottom: Bullish reversal (W shape)
-- Head and Shoulders: Bearish reversal
-- Cup and Handle: Bullish continuation
-
-Default parameters are permissive to detect more patterns.
-Use calibration sliders in the UI to fine-tune.
-"""
-
 from typing import Dict, List
 
 import numpy as np
 import pandas as pd
-from scipy.signal import find_peaks
 
-# Import only what we need from config
-from config.patterns import (
-    SMOOTH_WINDOW,
-    PEAK_PROMINENCE,
-    CUP_RIM_TOLERANCE,
-    HANDLE_PULLBACK_RATIO,
-)
+from config.patterns import SMOOTH_WINDOW, PEAK_PROMINENCE
+
 from config.data import COLUMNS
-from .helpers import smooth_prices, find_local_peaks, find_local_troughs, find_rims_and_bottom, find_handle
-
-
-# =============================================================================
-# CHART PATTERNS
-# =============================================================================
+from .helpers import smooth_prices, find_local_peaks, find_local_troughs, _clamp01, compute_cup_handle_confidence, find_rims_and_bottom, find_handle
 
 def detect_double_top(
     df: pd.DataFrame,
@@ -120,7 +88,6 @@ def detect_double_top(
     
     return patterns
 
-
 def detect_double_bottom(
     df: pd.DataFrame, 
     min_confidence: float = 0.5,
@@ -199,7 +166,6 @@ def detect_double_bottom(
     
     return patterns
 
-
 def detect_head_and_shoulders(
     df: pd.DataFrame, 
     min_confidence: float = 0.5,
@@ -256,7 +222,7 @@ def detect_head_and_shoulders(
             shoulder_diff = 1.0
 
         # confidence normalizzata in [0..1]
-        confidence = max(0.0, min(1.0, 1.0 - shoulder_diff))
+        confidence = _clamp01(1.0 - shoulder_diff)
         if confidence < min_confidence:
             continue
         
@@ -265,8 +231,7 @@ def detect_head_and_shoulders(
         
         head_prominence = (head_price - max_shoulder) / head_price
         if head_prominence < shoulder_diff:
-            continue
-        print(head_prominence, shoulder_diff)
+            continue        
         
         # Calculate neckline
         troughs_left = troughs[(troughs > left_idx) & (troughs < head_idx)]
@@ -294,48 +259,6 @@ def detect_head_and_shoulders(
         })
     
     return patterns
-
-def _clamp01(x: float) -> float:
-    return max(0.0, min(1.0, x))
-
-def compute_cup_handle_confidence(
-    left_rim_price: float,
-    right_rim_price: float,
-    cup_depth: float,
-    handle_pullback: float,
-    cup_depth_min: float,
-    cup_depth_max: float,
-    rim_tolerance: float = CUP_RIM_TOLERANCE,
-    handle_ratio: float = HANDLE_PULLBACK_RATIO,
-    weights: tuple = (0.30, 0.50, 0.20)
-) -> float:
-    """
-    Calcola la confidence del pattern Cup & Handle combinando:
-      - similarità dei rim (rim_score)
-      - profondità della cup (depth_score)
-      - pullback dell'handle (handle_score)
-
-    Restituisce valore normalizzato [0..1].
-    """
-    W_RIM, W_DEPTH, W_HANDLE = weights
-
-    avg_rim = (left_rim_price + right_rim_price) / 2 if (left_rim_price + right_rim_price) != 0 else 0.0
-    rim_diff = abs(left_rim_price - right_rim_price) / avg_rim if avg_rim != 0 else 1.0
-    rim_score = _clamp01(1.0 - (rim_diff / rim_tolerance)) if rim_tolerance > 0 else _clamp01(1.0 - rim_diff)
-
-    if cup_depth_max > cup_depth_min:
-        depth_score = _clamp01((cup_depth - cup_depth_min) / (cup_depth_max - cup_depth_min))
-    else:
-        depth_score = _clamp01(cup_depth)
-
-    handle_threshold = cup_depth * handle_ratio
-    if handle_threshold > 0:
-        handle_score = _clamp01(1.0 - (handle_pullback / handle_threshold))
-    else:
-        handle_score = 1.0 if handle_pullback == 0 else 0.0
-
-    return _clamp01(rim_score * W_RIM + depth_score * W_DEPTH + handle_score * W_HANDLE)
-
 
 def detect_cup_and_handle(
     df: pd.DataFrame, 

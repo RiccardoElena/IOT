@@ -13,6 +13,7 @@ import config
 from utils import list_available_assets
 from data import cached_load_single_asset
 from utils.logger import logger
+from pages.components import footer
 
 
 # =============================================================================
@@ -201,9 +202,4 @@ except Exception as e:
 # FOOTER
 # =============================================================================
 
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: gray;'>
-    IoT & Data Analytics Project | University Exam
-</div>
-""", unsafe_allow_html=True)
+footer("Home")

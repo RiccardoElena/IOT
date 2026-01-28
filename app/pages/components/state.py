@@ -1,10 +1,11 @@
 import streamlit as st
 from config import INITIAL_MESSAGE_DISPLAY_COUNT, DATA_OPTIONS
+from config.ui import PageType
 from typing import Dict
 
 try:
-    import src.gemini_assistant as gemini
-    gemini_status = gemini.get_gemini_status()
+    from services import get_gemini_status
+    gemini_status = get_gemini_status()
     GEMINI_MODULE_AVAILABLE = True
 except ImportError:
     GEMINI_MODULE_AVAILABLE = False
@@ -44,7 +45,7 @@ def init_gemini_session_state() -> None:
         st.session_state.gemini_chart_order = []
 
 
-def get_selected_data_options(page_type: str) -> Dict[str, bool]:
+def get_selected_data_options(page_type: PageType) -> Dict[str, bool]:
     """
     Get the currently selected data options for a page type.
     

@@ -3,6 +3,7 @@ import time
 from typing import Any, List
 from .state import init_gemini_session_state, get_selected_data_options, GEMINI_MODULE_AVAILABLE
 from config import MAX_CHARTS_IN_CONTEXT, DATA_OPTIONS
+from config.ui import PageType
 
 # =============================================================================
 # CHART SELECTION MANAGEMENT
@@ -173,7 +174,7 @@ def render_selected_charts_list() -> None:
             st.rerun()
 
 
-def render_data_selection(page_type: str) -> List[str]:
+def render_data_selection(page_type: PageType) -> List[str]:
     """
     Render data selection checkboxes in an expander.
     

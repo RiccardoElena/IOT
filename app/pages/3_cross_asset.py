@@ -24,6 +24,7 @@ from plotly.subplots import make_subplots
 pd.set_option('future.no_silent_downcasting', True)
 
 import config
+from config.ui import PageType
 from utils.logger import logger
 from data import (
     cross_asset_data
@@ -38,9 +39,8 @@ from pages.components import (
 )
 
 # Import analysis modules
-from src.cross_asset import (
+from services import (
     analyze_asset_pair,
-    create_price_matrix_from_dict,
     format_pair_name,
     get_asset_pairs,
     get_typical_correlations,
@@ -51,7 +51,8 @@ from src.cross_asset import (
 )
 
 # Import Gemini context builder for this page
-from src.gemini_assistant import build_cross_asset_context
+from services import context_builder_factory
+from ui import cross_asset_controls, date_selector
 
 
 # =============================================================================
@@ -76,23 +77,7 @@ with st.sidebar:
     st.header("Controls")
     
     # Correlation window
-    correlation_window = st.slider(
-        "Correlation Window (days)",
-        min_value=10,
-        max_value=60,
-        value=config.CORRELATION_WINDOW,
-        step=5,
-        help="Number of days used to calculate rolling correlation. Smaller = more reactive, larger = more stable."
-    )
-    
-    # Systemic event threshold
-    systemic_threshold = st.slider(
-        "Systemic Event Threshold",
-        min_value=2,
-        max_value=5,
-        value=config.SYSTEMIC_EVENT_THRESHOLD,
-        help="Minimum number of assets that must show anomalies simultaneously to flag as a systemic event."
-    )
+    correlation_window, systemic_threshold = cross_asset_controls()
     
     st.markdown("---")
     
@@ -110,32 +95,12 @@ with st.spinner("Loading cross-asset data..."):
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### 📅 Date Range")
 
 # Get common date range across all assets
 first_asset = list(all_data.values())[0]
 min_date = first_asset.index.min().date()
 max_date = first_asset.index.max().date()
-
-col1, col2 = st.columns(2)
-
-with col1:
-    start_date = st.date_input(
-        "Start Date",
-        value=min_date,
-        min_value=min_date,
-        max_value=max_date,
-        help="Beginning of the analysis period. All calculations use data from this date onwards."
-    )
-
-with col2:
-    end_date = st.date_input(
-        "End Date",
-        value=max_date,
-        min_value=min_date,
-        max_value=max_date,
-        help="End of the analysis period. All calculations use data up to this date."
-    )
+start_date, end_date = date_selector("minute", min_date, max_date)
 
 
 # =============================================================================
@@ -191,7 +156,7 @@ systemic_events = {
 }
 
 # Build Gemini context with cross-asset data
-gemini_context = build_cross_asset_context(
+gemini_context = context_builder_factory(PageType.CROSS_ASSET)(
     start_date=str(start_date),
     end_date=str(end_date),
     correlation_matrix=correlation_dict,
@@ -204,7 +169,7 @@ gemini_context = build_cross_asset_context(
 with st.sidebar:
     render_chat(
         page_context=gemini_context,
-        page_type="cross_asset"
+        page_type=PageType.CROSS_ASSET
     )
 
 

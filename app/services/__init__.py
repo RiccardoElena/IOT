@@ -8,6 +8,6 @@ This package contains all the core modules:
 - pattern_recognition: Candlestick and chart pattern detection
 """
 
-from .anomaly_detection import *
-from .cross_asset import *
-from .pattern_recognition import *
+from .analisys import *
+from .pattern import *
+from .llm import *

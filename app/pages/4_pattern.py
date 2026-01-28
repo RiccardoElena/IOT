@@ -12,13 +12,13 @@ Gemini AI assistant provides contextual help on pattern interpretation.
 
 Run with: streamlit run app.py (then navigate to this page)
 """
-from typing import Tuple, Dict, List, Any
+from typing import Dict, List, Any
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
 import config
-from utils.logger import logger
+from config.ui import PageType
 
 # Import UI components including Gemini sidebar
 from pages.components import (
@@ -37,7 +37,7 @@ from data import (
     pattern_data
 )
 
-from src.pattern_recognition import (
+from services.pattern import (
     detect_all_candlestick_patterns,
     detect_all_chart_patterns,
     get_pattern_summary,
@@ -45,8 +45,8 @@ from src.pattern_recognition import (
 )
 
 # Import Gemini context builder for this page
-from src.gemini_assistant import build_pattern_context
-
+from services.llm import context_builder_factory
+from ui import pattern_controls
 
 # =============================================================================
 # PAGE CONFIGURATION
@@ -70,46 +70,9 @@ with st.sidebar:
     st.header(" Controls")
     
     asset_options = {key: get_asset_display_name(key) for key in config.ASSETS.keys()}
-    selected_asset = st.selectbox(
-        "Select Asset",
-        options=list(asset_options.keys()),
-        format_func=lambda x: asset_options[x]
-    )
-    
-    st.info("Using **Daily** data for pattern recognition")
+    selected_asset, prominence, prominence_decimal, chart_lookback, minimal_confidence = pattern_controls(asset_options)
     
     st.markdown("---")
-    st.subheader("Pattern Calibration")
-    
-    tolerance = st.slider(
-        "Price Tolerance (%)",
-        min_value=2.0,
-        max_value=15.0,
-        value=2.0,
-        step=1.0,
-        help="How close peak/trough prices must be to match"
-    )
-    tolerance_decimal = tolerance / 100
-    
-    prominence = st.slider(
-        "Peak Prominence (%)",
-        min_value=0.5,
-        max_value=5.0,
-        value=5.0,
-        step=0.5,
-        help="Minimum height of peaks/troughs"
-    )
-    prominence_decimal = prominence / 100
-    
-    chart_lookback = st.slider(
-        "Chart Pattern Window",
-        min_value=20,
-        max_value=100,
-        value=50,
-        step=10,
-        help="Time window for detecting multi-candle patterns"
-    )
-    
     # Gemini sidebar will be rendered after data is loaded (at end of sidebar block)
 
 
@@ -161,7 +124,7 @@ with st.spinner("Detecting patterns..."):
     chart_patterns = detect_all_chart_patterns(
         df_filtered, 
         lookback=chart_lookback,
-        tolerance=tolerance_decimal,
+        min_confidence=minimal_confidence,
         prominence_pct=prominence_decimal
     )
 
@@ -185,9 +148,9 @@ for p in chart_patterns[:10]:  # Limit to 10 for context
     })
 
 # Build Gemini context with pattern data
-gemini_context = build_pattern_context(
+gemini_context = context_builder_factory(PageType.PATTERNS)(
     asset=selected_asset,
-    asset_display=get_asset_display_name(selected_asset),
+    asset_display=get_asset_display_name(selected_asset), # type: ignore
     start_date=str(start_date),
     end_date=str(end_date),
     candlestick_counts=pattern_summary,
@@ -205,7 +168,7 @@ with st.sidebar:
     st.markdown("---")
     render_chat(
         page_context=gemini_context,
-        page_type="patterns"
+        page_type=PageType.PATTERNS
     )
 
 
@@ -316,7 +279,7 @@ for pattern_col, pattern_name in pattern_names.items():
 
 fig_candle.update_layout(
     height=500,
-    title=f"Candlestick Patterns - {get_asset_display_name(selected_asset)}",
+    title=f"Candlestick Patterns - {get_asset_display_name(selected_asset)}", # type: ignore
     xaxis_title="Date",
     yaxis_title="Price",
     xaxis_rangeslider_visible=False,
@@ -334,7 +297,7 @@ with t_col2:
     render_chart_add_button(
         chart_id="patterns_main",
         figure=fig_candle,
-        label=f"Patterns - {get_asset_display_name(selected_asset)}",
+        label=f"Patterns - {get_asset_display_name(selected_asset)}", # type: ignore
         page="patterns",
         position="inline"
     )
@@ -460,7 +423,7 @@ if len(chart_patterns) > 0:
     
     fig_chart.update_layout(
         height=500,
-        title=f"Chart Patterns - {get_asset_display_name(selected_asset)}",
+        title=f"Chart Patterns - {get_asset_display_name(selected_asset)}", # type: ignore
         xaxis_title="Date",
         yaxis_title="Price",
         hovermode="x unified",
@@ -478,7 +441,7 @@ if len(chart_patterns) > 0:
         render_chart_add_button(
             chart_id="patterns_chart",
             figure=fig_chart,
-            label=f"Chart Patterns - {get_asset_display_name(selected_asset)}",
+            label=f"Chart Patterns - {get_asset_display_name(selected_asset)}", # type: ignore
             page="patterns",
             position="inline"
         )
@@ -489,7 +452,6 @@ if len(chart_patterns) > 0:
     chart_pattern_data = []
     for i, p in enumerate(chart_patterns, 1):
         row = {
-            "ID": i,
             "Type": p["type"],
             "Start": str(p["start_date"])[:10],
             "End": str(p["end_date"])[:10],
@@ -502,7 +464,7 @@ if len(chart_patterns) > 0:
         elif p["type"] == "Double Bottom":
             row["Details"] = f"Troughs: ${p['trough1_price']:.2f}, ${p['trough2_price']:.2f}"
         elif p["type"] == "Head & Shoulders":
-            row["Details"] = f"Head: ${p['head']:.2f}, Shoulders: ${p['left_shoulder']:.2f}"
+            row["Details"] = f"Head: ${p['head']:.2f}, Shoulders: ${p['left_shoulder']:.2f}, ${p['right_shoulder']:.2f}"
         elif p["type"] == "Cup & Handle":
             row["Details"] = f"Depth: {p['cup_depth_pct']:.1f}%"
         else:
@@ -518,9 +480,9 @@ else:
     No chart patterns detected with current settings.
     
     **Try adjusting:**
-    - Increase **Price Tolerance** (currently {tolerance}%)
     - Lower **Peak Prominence** (currently {prominence}%)
     - Increase **Chart Pattern Window** (currently {chart_lookback})
+    - Decrease **Minimum Confidence** (currently {minimal_confidence}%)
     """)
 
 

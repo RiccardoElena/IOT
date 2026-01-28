@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Tuple
 from datetime import timedelta
 import pandas as pd
 from .core import load_single_asset, get_date_range, load_all_assets
-from src.anomaly_detection import detect_anomalies
+from services import detect_anomalies
 
 
 @st.cache_data

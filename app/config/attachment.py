@@ -1,9 +1,5 @@
-from .ui import (
-    PAGE_TYPE_SINGLE_ASSET,
-    PAGE_TYPE_REALTIME,
-    PAGE_TYPE_CROSS_ASSET,
-    PAGE_TYPE_PATTERNS
-)
+from .ui import PageType
+
 
 # =============================================================================
 # DATA ATTACHMENT CONFIGURATION
@@ -11,7 +7,7 @@ from .ui import (
 
 # Available data options for each page type
 DATA_OPTIONS = {
-    PAGE_TYPE_SINGLE_ASSET: {
+    PageType.SINGLE_ASSET: {
         "price_stats": {
             "label": "Statistiche prezzo",
             "description": "Min, max, current, % change",
@@ -38,7 +34,7 @@ DATA_OPTIONS = {
             "default": False
         }
     },
-    PAGE_TYPE_REALTIME: {
+    PageType.REALTIME: {
         "simulation_progress": {
             "label": "Progresso simulazione",
             "description": "Current progress and points streamed",
@@ -55,7 +51,7 @@ DATA_OPTIONS = {
             "default": False
         }
     },
-    PAGE_TYPE_CROSS_ASSET: {
+    PageType.CROSS_ASSET: {
         "correlation_matrix": {
             "label": "🔗 Matrice correlazioni",
             "description": "Full correlation matrix between assets",
@@ -72,7 +68,7 @@ DATA_OPTIONS = {
             "default": False
         }
     },
-    PAGE_TYPE_PATTERNS: {
+    PageType.PATTERNS: {
         "candlestick_patterns": {
             "label": "🕯️ Pattern candlestick",
             "description": "Doji, Hammer, Engulfing patterns",
@@ -93,22 +89,22 @@ DATA_OPTIONS = {
 
 # Page-specific suggested questions for welcome message
 PAGE_SUGGESTIONS = {
-    PAGE_TYPE_SINGLE_ASSET: [
+    PageType.SINGLE_ASSET: [
         "Cosa significa Z-score?",
         "Spiega le anomalie rilevate",
         "Analizza il trend del prezzo"
     ],
-    PAGE_TYPE_REALTIME: [
+    PageType.REALTIME: [
         "Come funziona la sliding window?",
         "Spiega le anomalie in tempo reale",
         "Cosa indica la simulazione?"
     ],
-    PAGE_TYPE_CROSS_ASSET: [
+    PageType.CROSS_ASSET: [
         "Spiega la matrice di correlazione",
         "Cosa sono gli eventi sistemici?",
         "Analizza le relazioni tra asset"
     ],
-    PAGE_TYPE_PATTERNS: [
+    PageType.PATTERNS: [
         "Cosa indica un pattern Doji?",
         "Spiega i pattern rilevati",
         "Qual è il segnale più importante?"

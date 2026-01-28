@@ -5,6 +5,7 @@ Page layout, colors, chart settings, and all visual parameters.
 """
 
 from typing import Literal
+from enum import Enum
 
 # =============================================================================
 # PAGE CONFIGURATION
@@ -16,12 +17,11 @@ PAGE_TYPE_REALTIME = "realtime"
 PAGE_TYPE_CROSS_ASSET = "cross_asset"
 PAGE_TYPE_PATTERNS = "patterns"
 
-PAGE_TYPES = [
-    PAGE_TYPE_SINGLE_ASSET,
-    PAGE_TYPE_REALTIME,
-    PAGE_TYPE_CROSS_ASSET,
-    PAGE_TYPE_PATTERNS
-]
+class PageType(Enum):
+    SINGLE_ASSET = PAGE_TYPE_SINGLE_ASSET
+    REALTIME = PAGE_TYPE_REALTIME
+    CROSS_ASSET = PAGE_TYPE_CROSS_ASSET
+    PATTERNS = PAGE_TYPE_PATTERNS
 
 # Streamlit page configuration
 PAGE_TITLE = "IoT Financial Analytics"

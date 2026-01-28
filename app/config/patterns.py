@@ -42,6 +42,10 @@ HAMMER_SHADOW_RATIO_DEFAULT = 2.0
 CHART_PATTERN_LOOKBACK_DEFAULT = 50
 CHART_PATTERN_LOOKBACK_MIN = 20
 CHART_PATTERN_LOOKBACK_MAX = 100
+CUP_RIM_TOLERANCE = 0.15
+HANDLE_PULLBACK_RATIO = 0.5
+SMOOTH_WINDOW = 5
+PEAK_PROMINENCE = 0.01
 
 # =============================================================================
 # UI SLIDER RANGES (from constants.py)
@@ -64,3 +68,4 @@ PROMINENCE_STEP = 0.5
 
 # Maximum number of patterns to show in context
 MAX_PATTERNS_IN_CONTEXT = 10
+

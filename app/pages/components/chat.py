@@ -6,7 +6,8 @@ from .attachment import get_selected_chart_figures, render_selected_charts_list,
 from typing import Any, Dict, List
 
 from utils.logger import logger
-from src.gemini_assistant import (
+from config.ui import PageType
+from services import (
     get_assistant,
     filter_context
 )
@@ -38,7 +39,7 @@ def _render_status_badge() -> None:
 
 
 
-def _render_welcome_message(page_type: str = "single_asset") -> None:
+def _render_welcome_message(page_type: PageType = PageType.SINGLE_ASSET) -> None:
     """
     Render welcome message with page-specific quick suggestions.
     
@@ -58,7 +59,7 @@ def _render_welcome_message(page_type: str = "single_asset") -> None:
     st.markdown("**💡 Prova:**")
     
     # Get page-specific suggestions
-    suggestions = PAGE_SUGGESTIONS.get(page_type, PAGE_SUGGESTIONS[PAGE_TYPE_SINGLE_ASSET])
+    suggestions = PAGE_SUGGESTIONS.get(page_type, PAGE_SUGGESTIONS[PageType.SINGLE_ASSET])
     
     for suggestion in suggestions:
         if st.button(
@@ -71,7 +72,7 @@ def _render_welcome_message(page_type: str = "single_asset") -> None:
             st.rerun()
 
 
-def _render_chat_messages(page_type: str = "single_asset") -> None:
+def _render_chat_messages(page_type: PageType = PageType.SINGLE_ASSET) -> None:
     """
     Render all messages in a scrollable container with smart auto-scroll.
     
@@ -215,7 +216,7 @@ def _process_user_message(
 
 def render_chat(
     page_context: Dict[str, Any],
-    page_type: str = "single_asset"
+    page_type: PageType = PageType.SINGLE_ASSET
 ) -> None:
     """
     Render the Gemini chat interface inside the sidebar.
@@ -230,7 +231,7 @@ def render_chat(
     Args:
         page_context: Dictionary with current page information and data.
         page_type: Type of page for appropriate data options.
-            One of: 'single_asset', 'realtime', 'cross_asset', 'patterns'
+            One of: PageType.SINGLE_ASSET, PageType.REALTIME, PageType.CROSS_ASSET, PageType.PATTERNS
     """
     init_gemini_session_state()
     

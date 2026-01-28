@@ -26,6 +26,6 @@ def footer(page_title: str) -> None:
     st.markdown("---")
     st.markdown(f"""
     <div style='text-align: center; color: gray;'>
-        {page_title} | IoT & Data Analytics Project
+        {page_title}  |  IoT & Data Analytics Project
     </div>
     """, unsafe_allow_html=True)

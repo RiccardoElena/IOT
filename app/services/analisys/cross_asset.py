@@ -11,14 +11,9 @@ Used to identify relationships between different assets.
 """
 
 from typing import Dict, List, Optional, Tuple, Any
-
-
 import pandas as pd
 
-# Import only what we need from config
-from config.anomaly import (
-    CORRELATION_WINDOW,
-)
+from config.anomaly import CORRELATION_WINDOW
 from config.data import COLUMNS
 from config.assets import ASSETS
 from utils.dates import filter_by_date_range
@@ -27,19 +22,6 @@ from .anomaly_detection import detect_anomalies
 # =============================================================================
 # CORRELATION CALCULATIONS
 # =============================================================================
-
-
-def calculate_returns_matrix(price_matrix: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calculate percentage returns for all assets.
-    
-    Args:
-        price_matrix: DataFrame with assets as columns
-    
-    Returns:
-        DataFrame with percentage returns
-    """
-    return price_matrix.pct_change() * 100
 
 
 def calculate_rolling_correlation(
@@ -110,12 +92,6 @@ def get_correlation_statistics(rolling_corr: pd.Series) -> Dict[str, float | Non
         "max": float(rolling_corr.max()),
         "current": float(rolling_corr.iloc[-1]) if len(rolling_corr) > 0 else None
     }
-
-
-# =============================================================================
-# SIMULTANEOUS ANOMALIES
-# =============================================================================
-
 
 
 # =============================================================================
@@ -341,7 +317,6 @@ def get_anomaly_details_by_date(anomaly_flags: dict) -> pd.DataFrame:
         return pd.DataFrame(columns=["timestamp", "count", "assets_list", "assets_str"])
     
     return pd.DataFrame(results).set_index("timestamp")
-
 
 def count_simultaneous_anomalies(anomaly_flags: dict) -> pd.Series:
     """

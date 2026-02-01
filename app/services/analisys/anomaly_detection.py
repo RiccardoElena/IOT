@@ -9,16 +9,18 @@ This module implements anomaly detection techniques:
 All thresholds are configurable via config.py
 """
 
-import os
-import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple, List, Any
 
 import numpy as np
 import pandas as pd
 
-# Add parent directory to path for config import
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import config
+# Import only what we need from config
+from config.anomaly import (
+    ZSCORE_WARNING_THRESHOLD,
+    ZSCORE_ANOMALY_THRESHOLD,
+    WINDOW_SIZE_MINUTE,
+)
+from config.data import COLUMNS
 
 
 # =============================================================================
@@ -50,7 +52,7 @@ def calculate_zscore_batch(series: pd.Series) -> pd.Series:
     return (series - mean) / std
 
 
-def calculate_zscore_rolling(series: pd.Series, window: int = None) -> pd.Series:
+def calculate_zscore_rolling(series: pd.Series, window: Optional[int] = None) -> pd.Series:
     """
     Calculate Z-score using rolling window (streaming mode).
     
@@ -67,7 +69,7 @@ def calculate_zscore_rolling(series: pd.Series, window: int = None) -> pd.Series
         Series with rolling Z-score values
     """
     if window is None:
-        window = config.WINDOW_SIZE_MINUTE
+        window = WINDOW_SIZE_MINUTE
     
     rolling_mean = series.rolling(window=window, min_periods=1).mean()
     rolling_std = series.rolling(window=window, min_periods=1).std()
@@ -80,163 +82,34 @@ def calculate_zscore_rolling(series: pd.Series, window: int = None) -> pd.Series
     # Fill NaN with 0 (first points where we don't have enough data)
     return zscore.fillna(0)
 
-
-# =============================================================================
-# PERCENTILE-BASED DETECTION
-# =============================================================================
-
-def calculate_percentile_bounds(
-    series: pd.Series, 
-    low_pct: float = None, 
-    high_pct: float = None
-) -> Tuple[float, float]:
-    """
-    Calculate percentile bounds for anomaly detection.
-    
-    Args:
-        series: Pandas Series with numeric values
-        low_pct: Lower percentile threshold (default from config)
-        high_pct: Upper percentile threshold (default from config)
-    
-    Returns:
-        Tuple of (lower_bound, upper_bound)
-    """
-    if low_pct is None:
-        low_pct = config.PERCENTILE_LOW
-    if high_pct is None:
-        high_pct = config.PERCENTILE_HIGH
-    
-    lower_bound = np.percentile(series.dropna(), low_pct)
-    upper_bound = np.percentile(series.dropna(), high_pct)
-    
-    return lower_bound, upper_bound
-
-
-def detect_percentile_anomalies(
-    series: pd.Series,
-    low_pct: float = None,
-    high_pct: float = None
-) -> pd.Series:
-    """
-    Detect anomalies based on percentile thresholds.
-    
-    Values below low_pct or above high_pct are flagged as anomalies.
-    
-    Args:
-        series: Pandas Series with numeric values
-        low_pct: Lower percentile threshold
-        high_pct: Upper percentile threshold
-    
-    Returns:
-        Boolean Series (True = anomaly)
-    """
-    lower_bound, upper_bound = calculate_percentile_bounds(series, low_pct, high_pct)
-    
-    return (series < lower_bound) | (series > upper_bound)
-
-
-# =============================================================================
-# PERCENTAGE CHANGE DETECTION
-# =============================================================================
-
-def calculate_percentage_change(series: pd.Series) -> pd.Series:
-    """
-    Calculate period-over-period percentage change.
-    
-    Formula: pct_change = (current - previous) / previous * 100
-    
-    Args:
-        series: Pandas Series with numeric values
-    
-    Returns:
-        Series with percentage change values
-    """
-    return series.pct_change() * 100
-
-
-def detect_pct_change_anomalies(
-    series: pd.Series, 
-    threshold: float = None,
-    granularity: str = "daily"
-) -> pd.Series:
-    """
-    Detect anomalies based on percentage change threshold.
-    
-    Args:
-        series: Pandas Series with numeric values
-        threshold: Percentage threshold (absolute value)
-        granularity: Data granularity to determine default threshold
-    
-    Returns:
-        Boolean Series (True = anomaly)
-    """
-    if threshold is None:
-        if granularity == "minute":
-            threshold = config.PCT_CHANGE_THRESHOLD_MINUTE
-        else:
-            threshold = config.PCT_CHANGE_THRESHOLD_DAILY
-    
-    pct_change = calculate_percentage_change(series)
-    
-    return pct_change.abs() > threshold
-
-
 # =============================================================================
 # VOLATILITY CALCULATION
 # =============================================================================
 
 def calculate_volatility(df: pd.DataFrame) -> pd.Series:
-    """
-    Calculate intraperiod volatility (high - low).
-    
-    Args:
-        df: DataFrame with 'high' and 'low' columns
-    
-    Returns:
-        Series with volatility values
-    """
-    high_col = config.COLUMNS["high"]
-    low_col = config.COLUMNS["low"]
+
+    high_col = COLUMNS["high"]
+    low_col = COLUMNS["low"]
     
     return df[high_col] - df[low_col]
-
 
 # =============================================================================
 # ANOMALY CLASSIFICATION
 # =============================================================================
 
 def classify_zscore(zscore: float) -> str:
-    """
-    Classify a Z-score value into categories.
-    
-    Args:
-        zscore: Z-score value
-    
-    Returns:
-        Classification string: 'normal', 'warning', or 'anomaly'
-    """
     abs_z = abs(zscore)
     
-    if abs_z >= config.ZSCORE_ANOMALY_THRESHOLD:
+    if abs_z >= ZSCORE_ANOMALY_THRESHOLD:
         return "anomaly"
-    elif abs_z >= config.ZSCORE_WARNING_THRESHOLD:
+    elif abs_z >= ZSCORE_WARNING_THRESHOLD:
         return "warning"
     else:
         return "normal"
 
 
 def classify_zscore_series(zscore_series: pd.Series) -> pd.Series:
-    """
-    Classify all Z-scores in a series.
-    
-    Args:
-        zscore_series: Series with Z-score values
-    
-    Returns:
-        Series with classification strings
-    """
     return zscore_series.apply(classify_zscore)
-
 
 # =============================================================================
 # MAIN ANOMALY DETECTION FUNCTION
@@ -244,7 +117,7 @@ def classify_zscore_series(zscore_series: pd.Series) -> pd.Series:
 
 def detect_anomalies(
     df: pd.DataFrame, 
-    zscore_threshold: float = None,
+    zscore_threshold: Optional[float] = None,
     mode: str = "batch"
 ) -> pd.DataFrame:
     """
@@ -269,20 +142,22 @@ def detect_anomalies(
         DataFrame with added anomaly columns
     """
     if zscore_threshold is None:
-        zscore_threshold = config.ZSCORE_ANOMALY_THRESHOLD
+        zscore_threshold = ZSCORE_ANOMALY_THRESHOLD
     
     # Create a copy to avoid modifying original
     result = df.copy()
     
-    # Get column names from config
-    close_col = config.COLUMNS["close"]
-    volume_col = config.COLUMNS["volume"]
+    # Get column names
+    close_col = COLUMNS["close"]
+    volume_col = COLUMNS["volume"]
     
     # Calculate volatility
     result["volatility"] = calculate_volatility(result)
     
     # Calculate percentage change BEFORE any filtering
-    result["pct_change"] = calculate_percentage_change(result[close_col])
+    result["pct_change"] = result[close_col].pct_change()*100
+    result["pct_change_volume"] = result[volume_col].pct_change()*100
+    result["pct_change_volatility"] = result["volatility"].pct_change()*100
     
     # Calculate Z-scores based on mode
     if mode == "rolling":
@@ -319,55 +194,44 @@ def detect_anomalies(
 # =============================================================================
 
 def get_anomaly_table(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Extract a summary table of all anomalies.
-    
-    Creates a human-readable table with one row per anomaly event.
-    Includes percentage change for price anomalies.
-    
-    Args:
-        df: DataFrame with anomaly columns (output of detect_anomalies)
-    
-    Returns:
-        DataFrame with anomaly summary (1-based index)
-    """
     anomalies = []
     
-    close_col = config.COLUMNS["close"]
-    volume_col = config.COLUMNS["volume"]
+    close_col = COLUMNS["close"]
+    volume_col = COLUMNS["volume"]
     
     for idx, row in df.iterrows():
-        pct_val = row.get("pct_change", None)
-        pct_change_value = pct_val if pd.notna(pct_val) else None
         
         # Check price anomaly - include pct_change
         if row.get("anomaly_price", False):
+            pct_val = row.get("pct_change", None)
             anomalies.append({
                 "timestamp": idx,
                 "type": "Price",
                 "value": row[close_col],
                 "zscore": row["zscore_close"],
-                "pct_change": pct_change_value
+                "pct_change": pct_val if pd.notna(pct_val) else None
             })
         
         # Check volume anomaly
         if row.get("anomaly_volume", False):
+            pct_val = row.get("pct_change_volume", None)
             anomalies.append({
                 "timestamp": idx,
                 "type": "Volume",
                 "value": row[volume_col],
                 "zscore": row["zscore_volume"],
-                "pct_change": pct_change_value
+                "pct_change": pct_val if pd.notna(pct_val) else None
             })
         
         # Check volatility anomaly
         if row.get("anomaly_volatility", False):
+            pct_val = row.get("pct_change_volatility", None)
             anomalies.append({
                 "timestamp": idx,
                 "type": "Volatility",
                 "value": row.get("volatility", None),
                 "zscore": row["zscore_volatility"],
-                "pct_change": pct_change_value
+                "pct_change": pct_val if pd.notna(pct_val) else None
             })
     
     if not anomalies:
@@ -375,21 +239,12 @@ def get_anomaly_table(df: pd.DataFrame) -> pd.DataFrame:
     
     result = pd.DataFrame(anomalies)
     # Set 1-based index
-    result.index = range(1, len(result) + 1)
+    result.index = list(range(1, len(result) + 1))
     
     return result
 
 
 def count_anomalies(df: pd.DataFrame) -> Dict[str, int]:
-    """
-    Count anomalies by type.
-    
-    Args:
-        df: DataFrame with anomaly columns
-    
-    Returns:
-        Dictionary with anomaly counts
-    """
     return {
         "price": int(df["anomaly_price"].sum()) if "anomaly_price" in df.columns else 0,
         "volume": int(df["anomaly_volume"].sum()) if "anomaly_volume" in df.columns else 0,
@@ -402,44 +257,11 @@ def count_anomalies(df: pd.DataFrame) -> Dict[str, int]:
 # STATISTICS FUNCTIONS
 # =============================================================================
 
-def get_zscore_statistics(df: pd.DataFrame) -> Dict[str, Dict[str, float]]:
-    """
-    Get summary statistics for Z-scores.
-    
-    Args:
-        df: DataFrame with Z-score columns
-    
-    Returns:
-        Dictionary with statistics
-    """
-    stats = {}
-    
-    for col in ["zscore_close", "zscore_volume", "zscore_volatility"]:
-        if col in df.columns:
-            stats[col] = {
-                "min": float(df[col].min()),
-                "max": float(df[col].max()),
-                "mean": float(df[col].mean()),
-                "std": float(df[col].std())
-            }
-    
-    return stats
-
-
-def get_threshold_lines(threshold: float = None) -> Dict[str, float]:
-    """
-    Get threshold values for plotting.
-    
-    Args:
-        threshold: Z-score threshold (default from config)
-    
-    Returns:
-        Dictionary with threshold values
-    """
+def get_threshold_lines(threshold: Optional[float] = None) -> Dict[str, float]:
     if threshold is None:
-        threshold = config.ZSCORE_ANOMALY_THRESHOLD
+        threshold = ZSCORE_ANOMALY_THRESHOLD
     
-    warning = config.ZSCORE_WARNING_THRESHOLD
+    warning = ZSCORE_WARNING_THRESHOLD
     
     return {
         "anomaly_upper": threshold,
@@ -447,3 +269,85 @@ def get_threshold_lines(threshold: float = None) -> Dict[str, float]:
         "warning_upper": warning,
         "warning_lower": -warning
     }
+
+
+def get_severity(zscore: float, threshold: float) -> str:
+    abs_z = abs(zscore)
+    if abs_z >= threshold + 1.0:
+        return "🔴 HIGH"
+    elif abs_z >= threshold + 0.5:
+        return "🟠 MEDIUM"
+    else:
+        return "🟡 LOW"
+
+def calculate_anomalies_batch(
+    prices: np.ndarray,
+    window: int,
+    threshold: float,
+    timestamps: pd.DatetimeIndex
+) -> List[Dict[str, Any]]:
+    """Calculate all anomalies in batch mode (for Run All)."""
+    anomalies = []
+    for i in range(window, len(prices)):
+        window_data = np.asarray(prices[i - window:i])
+        current_price = prices[i]
+        mean = window_data.mean()
+        std = window_data.std()
+        if std > 0:
+            zscore = (current_price - mean) / std
+            if abs(zscore) >= threshold:
+                anomalies.append({
+                    "idx": i,
+                    "timestamp": timestamps[i],
+                    "price": current_price,
+                    "zscore": zscore
+                })
+    return anomalies
+
+
+def process_batch(
+    start_idx: int,
+    batch_size: int,
+    prices: np.ndarray,
+    window: int,
+    threshold: float,
+    timestamps: pd.DatetimeIndex,
+    existing_anomalies: List[Dict[str, Any]]
+) -> Tuple[int, List[Dict[str, Any]]]:
+    """Process a batch of points and return new anomalies."""
+    new_anomalies = []
+    end_idx = min(start_idx + batch_size, len(prices))
+    
+    for i in range(start_idx, end_idx):
+        if i >= window:
+            window_data = np.asarray(prices[i - window:i])
+            current_price = prices[i]
+            mean = window_data.mean()
+            std = window_data.std()
+            
+            if std > 0:
+                zscore = (current_price - mean) / std
+                if abs(zscore) >= threshold:
+                    new_anomalies.append({
+                        "idx": i,
+                        "timestamp": timestamps[i],
+                        "price": current_price,
+                        "zscore": zscore
+                    })
+    
+    return end_idx, existing_anomalies + new_anomalies
+
+def compute_anomaly_log(anomalies: List[Dict[str, Any]], current_idx: int, zscore_threshold: float) -> Optional[pd.DataFrame]:
+    """Render the anomaly log as a dataframe."""
+    visible_anomalies = [a for a in anomalies if a["idx"] < current_idx]
+    if visible_anomalies:
+        log_data = []
+        for a in visible_anomalies:
+            log_data.append({
+                "Time": str(a["timestamp"])[11:19],
+                "Price": f"${a['price']:.2f}",
+                "Z-Score": f"{a['zscore']:.2f}σ",
+                "Severity": get_severity(a["zscore"], zscore_threshold)
+            })
+        return pd.DataFrame(log_data)
+    return None

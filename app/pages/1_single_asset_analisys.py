@@ -14,45 +14,44 @@ For minute data: weekly navigation for performance optimization.
 Run with: streamlit run app.py (then navigate to this page)
 """
 
-import os
-import sys
-from datetime import timedelta
-
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import config
+from config.ui import PageType
+from data import (
+    single_asset_analisys_dates,
+    single_asset_analisys_data,
+
+)
 
 # Import UI components
-from components import (
+from pages.components import (
     footer,
     title,
-    render_gemini_sidebar,
+    render_chat,
     render_chart_add_button,
 )
 
 # Import analysis modules
-from src.anomaly_detection import (
+from services import (
     count_anomalies,
-    detect_anomalies,
     get_anomaly_table,
     get_threshold_lines,
 )
-from src.data_loader import (
-    filter_by_date_range,
+
+from utils import (
     get_asset_display_name,
-    get_date_range_fast,
     get_granularity_display_name,
-    load_single_asset,
+    
 )
 
+from ui import create_zscore_chart, single_asset_controls, date_selector
+
 # Import Gemini context builder
-from src.gemini_assistant import build_single_asset_context
+from services import context_builder_factory
 
 
 # =============================================================================
@@ -68,60 +67,10 @@ st.set_page_config(
 title("Single Asset Analysis", "Explore individual asset data with anomaly detection.")
 
 
-def reset_zoom():
+def reset_zoom() -> None:
     """Reset zoom state when asset or granularity changes."""
     st.session_state.selected_zoom_range = None
     st.session_state.anomaly_selector = None
-
-
-# =============================================================================
-# DATA LOADING FUNCTIONS
-# =============================================================================
-
-@st.cache_data
-def load_data_full(asset: str, granularity: str):
-    """Load full dataset for an asset."""
-    return load_single_asset(asset, granularity)
-
-
-@st.cache_data
-def get_date_bounds(asset: str, granularity: str):
-    """Get min/max dates for a dataset without loading all data."""
-    return get_date_range_fast(asset, granularity)
-
-
-@st.cache_data
-def process_anomalies(df: pd.DataFrame, threshold: float):
-    """Run anomaly detection on data."""
-    return detect_anomalies(df, zscore_threshold=threshold, mode="batch")
-
-
-@st.cache_data
-def get_available_weeks(asset: str, granularity: str):
-    """Get list of available weeks for minute data."""
-    df = load_single_asset(asset, granularity)
-    
-    dates = pd.Series(df.index.date).unique()
-    min_date = min(dates)
-    max_date = max(dates)
-    
-    weeks = []
-    current_start = min_date
-    
-    while current_start <= max_date:
-        current_end = current_start + timedelta(days=6)
-        if current_end > max_date:
-            current_end = max_date
-        
-        weeks.append({
-            "start": current_start,
-            "end": current_end,
-            "label": f"{current_start.strftime('%Y-%m-%d')} → {current_end.strftime('%Y-%m-%d')}"
-        })
-        
-        current_start = current_end + timedelta(days=1)
-    
-    return weeks
 
 
 # =============================================================================
@@ -141,36 +90,7 @@ with st.sidebar:
     st.header("Controls")
     
     # Asset selection
-    selected_asset = st.selectbox(
-        "Select Asset",
-        options=list(asset_options.keys()),
-        on_change=reset_zoom,
-        format_func=lambda x: asset_options[x]
-    )
-    
-    # Granularity selection
-    selected_granularity = st.selectbox(
-        "Select Granularity",
-        options=list(granularity_options.keys()),
-        on_change=reset_zoom,
-        format_func=lambda x: granularity_options[x],
-        index=2  # Default to daily
-    )
-    
-    st.markdown("---")
-    
-    # Z-Score threshold
-    zscore_threshold = st.slider(
-        "Z-Score Threshold",
-        min_value=1.0,
-        max_value=5.0,
-        value=config.ZSCORE_ANOMALY_THRESHOLD,
-        step=0.5,
-        help="Values beyond this threshold are classified as anomalies"
-    )
-    
-    # Show anomalies toggle
-    show_anomalies = st.checkbox("Highlight Anomalies", value=True)
+    selected_asset, selected_granularity, zscore_threshold, show_anomalies = single_asset_controls(reset_zoom, asset_options, granularity_options)
     
     st.markdown("---")
     
@@ -181,88 +101,30 @@ with st.sidebar:
 # DATE RANGE LOADING
 # =============================================================================
 
-try:
-    min_date_ts, max_date_ts = get_date_bounds(selected_asset, selected_granularity)
-    min_date = min_date_ts.date()
-    max_date = max_date_ts.date()
-except FileNotFoundError as e:
-    st.error(f"""
-    **Data file not found!**
-    
-    Please ensure the CSV file exists:
-    `data/{selected_granularity}/{config.FILE_NAMES[selected_asset]}`
-    
-    Error: {e}
-    """)
-    st.stop()
-except Exception as e:
-    st.error(f"Error reading data: {e}")
-    st.stop()
+min_date, max_date = single_asset_analisys_dates(
+    selected_asset, # type: ignore
+    selected_granularity # type: ignore
+)
 
 
 # =============================================================================
 # DATE RANGE SELECTION (MAIN AREA)
 # =============================================================================
 
-st.markdown("### 📅 Date Range")
-
-if selected_granularity == "minute":
-    st.info("⚠️ Minute data is limited to **one week at a time** for performance.")
-    
-    weeks = get_available_weeks(selected_asset, selected_granularity)
-    
-    selected_week = st.selectbox(
-        "Select Week",
-        options=range(len(weeks)),
-        format_func=lambda i: weeks[i]["label"],
-        index=len(weeks) - 1
-    )
-    
-    start_date = weeks[selected_week]["start"]
-    end_date = weeks[selected_week]["end"]
-
-else:
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        start_date = st.date_input(
-            "Start Date", 
-            value=min_date, 
-            min_value=min_date, 
-            max_value=max_date
-        )
-    with col2:
-        end_date = st.date_input(
-            "End Date", 
-            value=max_date, 
-            min_value=min_date, 
-            max_value=max_date
-        )
-
-if start_date > end_date:
-    st.error("Start date must be before end date.")
-    st.stop()
+start_date, end_date = date_selector(selected_granularity, min_date, max_date)
 
 
 # =============================================================================
 # LOAD AND PROCESS DATA
 # =============================================================================
 
-try:
-    with st.spinner("Loading data..."):
-        df_full = load_data_full(selected_asset, selected_granularity)
-        df = filter_by_date_range(df_full, str(start_date), str(end_date))
-    
-    if len(df) == 0:
-        st.warning("No data available for selected date range.")
-        st.stop()
-    
-    with st.spinner("Detecting anomalies..."):
-        df_processed = process_anomalies(df.copy(), zscore_threshold)
-
-except Exception as e:
-    st.error(f"Error processing data: {e}")
-    st.stop()
+df_processed = single_asset_analisys_data(
+    selected_asset,
+    selected_granularity,
+    start_date,
+    end_date,
+    zscore_threshold
+)
 
 
 # =============================================================================
@@ -324,9 +186,9 @@ if len(anomaly_df) > 0:
         })
 
 # Build full context for Gemini
-gemini_context = build_single_asset_context(
+gemini_context = context_builder_factory(PageType.SINGLE_ASSET)(
     asset=selected_asset,
-    asset_display=get_asset_display_name(selected_asset),
+    asset_display=get_asset_display_name(selected_asset), # type: ignore
     granularity=selected_granularity,
     start_date=str(start_date),
     end_date=str(end_date),
@@ -345,9 +207,9 @@ gemini_context = build_single_asset_context(
 # =============================================================================
 
 with st.sidebar:
-    render_gemini_sidebar(
+    render_chat(
         page_context=gemini_context,
-        page_type="single_asset"
+        page_type=PageType.SINGLE_ASSET
     )
 
 
@@ -403,11 +265,11 @@ if show_anomalies:
                 x=anomaly_data.index,
                 y=anomaly_data[high_col] * 1.01,
                 mode="markers",
-                marker=dict(
-                    symbol="triangle-down",
-                    size=config.MARKER_SIZE_ANOMALY,
-                    color=config.COLOR_ANOMALY
-                ),
+                marker={
+                    "symbol": "triangle-down",
+                    "size": config.MARKER_SIZE_ANOMALY,
+                    "color": config.COLOR_ANOMALY
+                },
                 name="Price Anomaly",
                 hovertemplate=(
                     "<b>⚠️ ANOMALY</b><br>"
@@ -447,7 +309,7 @@ fig_main.add_trace(
         y=df_processed["volatility_range"],
         mode="lines",
         name="Volatility",
-        line=dict(color=config.COLOR_NORMAL, width=2),
+        line={"color": config.COLOR_NORMAL, "width": 2},
         fill='tozeroy',
         fillcolor='rgba(100, 149, 237, 0.2)',
         hovertemplate="Time: %{x}<br>Range: $%{y:.2f}<extra></extra>"
@@ -462,11 +324,11 @@ if show_anomalies and vol_anomaly_mask.any():
             y=df_processed[vol_anomaly_mask]["volatility_range"],
             mode="markers",
             name="Volatility Anomaly",
-            marker=dict(
-                size=config.MARKER_SIZE_ANOMALY,
-                color=config.COLOR_ANOMALY,
-                symbol="diamond"
-            ),
+            marker={
+                "size": config.MARKER_SIZE_ANOMALY,
+                "color": config.COLOR_ANOMALY,
+                "symbol": "diamond"
+            },
             hovertemplate="<b>⚠️ VOLATILITY ANOMALY</b><br>Time: %{x}<br>Range: $%{y:.2f}<extra></extra>"
         ),
         row=3, col=1
@@ -485,7 +347,7 @@ if st.session_state.selected_zoom_range is not None:
 fig_main.update_layout(
     height=700,
     showlegend=True,
-    legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1),
+    legend={"orientation": "h", "yanchor": "bottom", "y": 1.05, "xanchor": "right", "x": 1},
     xaxis_rangeslider_visible=False,
     hovermode="x unified"
 )
@@ -500,7 +362,7 @@ with col2:
     render_chart_add_button(
         chart_id="single_asset_main_chart",
         figure=fig_main,
-        label=f"Candlestick - {get_asset_display_name(selected_asset)} {get_granularity_display_name(selected_granularity)}",
+        label=f"Candlestick - {get_asset_display_name(selected_asset)} {get_granularity_display_name(selected_granularity)}", # type: ignore
         page="single_asset",
         position="inline"
     )
@@ -530,11 +392,11 @@ if len(anomaly_df) > 0:
         for i, row in anomaly_df.iterrows()
     ]
 
-    def on_anomaly_select():
+    def on_anomaly_select() -> None:
         """Callback when anomaly is selected."""
         selected = st.session_state.anomaly_selector
         
-        if selected != "Select an anomaly...":
+        if selected != "Select an anomaly..." and selected is not None:
             anomaly_idx = int(selected.split(":")[0].replace("#", ""))
             anomaly_row = anomaly_df.loc[anomaly_idx]
             anomaly_timestamp = anomaly_row["timestamp"]
@@ -569,73 +431,16 @@ with col1:
 thresholds = get_threshold_lines(zscore_threshold)
 
 
-def create_zscore_chart(data: pd.Series, anomaly_mask: pd.Series) -> go.Figure:
-    """Create a Z-score chart with threshold lines and anomaly markers."""
-    fig = go.Figure()
-    
-    # Main Z-score line
-    fig.add_trace(
-        go.Scatter(
-            x=data.index,
-            y=data.values,
-            mode="lines",
-            name="Z-Score",
-            line=dict(color=config.COLOR_NORMAL, width=1),
-            hovertemplate="Time: %{x}<br>Z-Score: %{y:.2f}σ<extra></extra>"
-        )
-    )
-    
-    # Anomaly points
-    if show_anomalies and anomaly_mask.any():
-        anomaly_data = data[anomaly_mask]
-        fig.add_trace(
-            go.Scatter(
-                x=anomaly_data.index,
-                y=anomaly_data.values,
-                mode="markers",
-                name="Anomaly",
-                marker=dict(size=config.MARKER_SIZE_ANOMALY, color=config.COLOR_ANOMALY),
-                hovertemplate="<b>⚠️ ANOMALY</b><br>Time: %{x}<br>Z-Score: %{y:.2f}σ<extra></extra>"
-            )
-        )
-    
-    # Threshold lines
-    fig.add_hline(y=thresholds["anomaly_upper"], line_dash="dash", line_color=config.COLOR_ANOMALY, annotation_text=f"+{zscore_threshold}σ")
-    fig.add_hline(y=thresholds["anomaly_lower"], line_dash="dash", line_color=config.COLOR_ANOMALY, annotation_text=f"-{zscore_threshold}σ")
-    fig.add_hline(y=thresholds["warning_upper"], line_dash="dot", line_color=config.COLOR_WARNING, annotation_text=f"+{config.ZSCORE_WARNING_THRESHOLD}σ")
-    fig.add_hline(y=thresholds["warning_lower"], line_dash="dot", line_color=config.COLOR_WARNING, annotation_text=f"-{config.ZSCORE_WARNING_THRESHOLD}σ")
-    fig.add_hline(y=0, line_color="gray", line_width=0.5)
-    
-    # Colored regions
-    fig.add_hrect(y0=thresholds["warning_lower"], y1=thresholds["warning_upper"], fillcolor="green", opacity=0.1, line_width=0)
-    fig.add_hrect(y0=thresholds["warning_upper"], y1=thresholds["anomaly_upper"], fillcolor="yellow", opacity=0.1, line_width=0)
-    fig.add_hrect(y0=thresholds["anomaly_lower"], y1=thresholds["warning_lower"], fillcolor="yellow", opacity=0.1, line_width=0)
-    
-    # Apply zoom if set
-    if st.session_state.selected_zoom_range is not None:
-        fig.update_xaxes(range=[st.session_state.selected_zoom_range["start"], st.session_state.selected_zoom_range["end"]])
-    
-    # Layout
-    fig.update_layout(
-        height=350,
-        showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
-        hovermode="x unified",
-        margin=dict(t=10)  # Reduce top margin to eliminate title space
-    )
-    fig.update_xaxes(title_text="Date")
-    fig.update_yaxes(title_text="Z-Score")
-    
-    return fig
-
-
 # Create tabs for Z-score charts
 tab1, tab2, tab3 = st.tabs(["Price Z-Score", "Volume Z-Score", "Volatility Z-Score"])
 
 with tab1:
     fig_zscore_price = create_zscore_chart(
         df_processed["zscore_close"],
-        df_processed["anomaly_price"]
+        df_processed["anomaly_price"],
+        show_anomalies,
+        thresholds,
+        zscore_threshold
     )
     col1, col2 = st.columns([0.92, 0.08])
     with col1:
@@ -653,7 +458,10 @@ with tab1:
 with tab2:
     fig_zscore_volume = create_zscore_chart(
         df_processed["zscore_volume"],
-        df_processed["anomaly_volume"]
+        df_processed["anomaly_volume"],
+        show_anomalies,
+        thresholds,
+        zscore_threshold
     )
     col1, col2 = st.columns([0.92, 0.08])
     with col1:
@@ -671,7 +479,10 @@ with tab2:
 with tab3:
     fig_zscore_volatility = create_zscore_chart(
         df_processed["zscore_volatility"],
-        df_processed["anomaly_volatility"]
+        df_processed["anomaly_volatility"],
+        show_anomalies,
+        thresholds,
+        zscore_threshold
     )
     col1, col2 = st.columns([0.92, 0.08])
     with col1:

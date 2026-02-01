@@ -12,37 +12,32 @@ Gemini AI assistant provides contextual help on pattern interpretation.
 
 Run with: streamlit run app.py (then navigate to this page)
 """
-
-import os
-import sys
-
-import numpy as np
+from typing import Dict, List, Any
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-from plotly.subplots import make_subplots
-
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import config
+from config.ui import PageType
 
 # Import UI components including Gemini sidebar
-from components import (
+from pages.components import (
     footer,
     title,
-    render_gemini_sidebar,
+    render_chat,
     render_chart_add_button,
 )
 
-# Import data and pattern recognition modules
-from src.data_loader import (
-    filter_by_date_range,
+from utils import (
     get_asset_display_name,
-    get_date_range_fast,
-    load_single_asset,
+    filter_by_date_range,
 )
-from src.pattern_recognition import (
+
+from data import (
+    pattern_data
+)
+
+from services.pattern import (
     detect_all_candlestick_patterns,
     detect_all_chart_patterns,
     get_pattern_summary,
@@ -50,8 +45,8 @@ from src.pattern_recognition import (
 )
 
 # Import Gemini context builder for this page
-from src.gemini_assistant import build_pattern_context
-
+from services.llm import context_builder_factory
+from ui import pattern_controls
 
 # =============================================================================
 # PAGE CONFIGURATION
@@ -75,46 +70,9 @@ with st.sidebar:
     st.header(" Controls")
     
     asset_options = {key: get_asset_display_name(key) for key in config.ASSETS.keys()}
-    selected_asset = st.selectbox(
-        "Select Asset",
-        options=list(asset_options.keys()),
-        format_func=lambda x: asset_options[x]
-    )
-    
-    st.info("Using **Daily** data for pattern recognition")
+    selected_asset, prominence, prominence_decimal, chart_lookback, minimal_confidence = pattern_controls(asset_options)
     
     st.markdown("---")
-    st.subheader("Pattern Calibration")
-    
-    tolerance = st.slider(
-        "Price Tolerance (%)",
-        min_value=2.0,
-        max_value=15.0,
-        value=2.0,
-        step=1.0,
-        help="How close peak/trough prices must be to match"
-    )
-    tolerance_decimal = tolerance / 100
-    
-    prominence = st.slider(
-        "Peak Prominence (%)",
-        min_value=0.5,
-        max_value=5.0,
-        value=5.0,
-        step=0.5,
-        help="Minimum height of peaks/troughs"
-    )
-    prominence_decimal = prominence / 100
-    
-    chart_lookback = st.slider(
-        "Chart Pattern Window",
-        min_value=20,
-        max_value=100,
-        value=50,
-        step=10,
-        help="Time window for detecting multi-candle patterns"
-    )
-    
     # Gemini sidebar will be rendered after data is loaded (at end of sidebar block)
 
 
@@ -122,30 +80,7 @@ with st.sidebar:
 # DATA LOADING
 # =============================================================================
 
-@st.cache_data
-def load_daily_data(asset: str):
-    return load_single_asset(asset, "daily")
-
-
-@st.cache_data
-def get_date_bounds(asset: str):
-    return get_date_range_fast(asset, "daily")
-
-
-try:
-    with st.spinner("Loading data..."):
-        df = load_daily_data(selected_asset)
-        min_date_ts, max_date_ts = get_date_bounds(selected_asset)
-        min_date = min_date_ts.date()
-        max_date = max_date_ts.date()
-
-except FileNotFoundError as e:
-    st.error(f"Data file not found: {e}")
-    st.stop()
-except Exception as e:
-    st.error(f"Error loading data: {e}")
-    st.stop()
-
+df, min_date, max_date = pattern_data(selected_asset)
 
 # =============================================================================
 # DATE RANGE SELECTION
@@ -189,7 +124,7 @@ with st.spinner("Detecting patterns..."):
     chart_patterns = detect_all_chart_patterns(
         df_filtered, 
         lookback=chart_lookback,
-        tolerance=tolerance_decimal,
+        min_confidence=minimal_confidence,
         prominence_pct=prominence_decimal
     )
 
@@ -213,9 +148,9 @@ for p in chart_patterns[:10]:  # Limit to 10 for context
     })
 
 # Build Gemini context with pattern data
-gemini_context = build_pattern_context(
+gemini_context = context_builder_factory(PageType.PATTERNS)(
     asset=selected_asset,
-    asset_display=get_asset_display_name(selected_asset),
+    asset_display=get_asset_display_name(selected_asset), # type: ignore
     start_date=str(start_date),
     end_date=str(end_date),
     candlestick_counts=pattern_summary,
@@ -231,9 +166,9 @@ gemini_context = build_pattern_context(
 # Render Gemini sidebar with pattern context
 with st.sidebar:
     st.markdown("---")
-    render_gemini_sidebar(
+    render_chat(
         page_context=gemini_context,
-        page_type="patterns"
+        page_type=PageType.PATTERNS
     )
 
 
@@ -314,55 +249,55 @@ for pattern_col, pattern_name in pattern_names.items():
     if pattern_col in df_patterns.columns:
         mask = df_patterns[pattern_col]
         if mask.any():
-            pattern_data = df_patterns[mask]
+            pattern = df_patterns[mask]
             
             if "Bullish" in pattern_name or pattern_name == "Hammer":
-                y_values = pattern_data[low_col] * 0.99
+                y_values = pattern[low_col] * 0.99
             else:
-                y_values = pattern_data[high_col] * 1.01
+                y_values = pattern[high_col] * 1.01
             
             fig_candle.add_trace(
                 go.Scatter(
-                    x=pattern_data.index,
+                    x=pattern.index,
                     y=y_values,
                     mode="markers",
                     name=pattern_name,
-                    marker=dict(
-                        symbol=pattern_symbols[pattern_col],
-                        size=12,
-                        color=pattern_colors[pattern_col]
-                    ),
+                    marker={
+                        "symbol": pattern_symbols[pattern_col],
+                        "size": 12,
+                        "color": pattern_colors[pattern_col]
+                    },
                     hovertemplate=(
                         f"<b>{pattern_name}</b><br>"
                         "Date: %{x}<br>"
                         "Price: $%{customdata:.2f}<br>"
                         "<extra></extra>"
                     ),
-                    customdata=pattern_data[close_col]
+                    customdata=pattern[close_col]
                 )
             )
 
 fig_candle.update_layout(
     height=500,
-    title=f"Candlestick Patterns - {get_asset_display_name(selected_asset)}",
+    title=f"Candlestick Patterns - {get_asset_display_name(selected_asset)}", # type: ignore
     xaxis_title="Date",
     yaxis_title="Price",
     xaxis_rangeslider_visible=False,
     hovermode="x unified",
-    legend=dict(
-        orientation="h", 
-        yanchor="bottom", 
-        y=1.02,
-        itemclick="toggle",
-        itemdoubleclick="toggleothers"
-    )
+    legend={
+        "orientation": "h", 
+        "yanchor": "bottom", 
+        "y": 1.02,
+        "itemclick": "toggle",
+        "itemdoubleclick": "toggleothers"
+    }
 )
 
 with t_col2:
     render_chart_add_button(
         chart_id="patterns_main",
         figure=fig_candle,
-        label=f"Patterns - {get_asset_display_name(selected_asset)}",
+        label=f"Patterns - {get_asset_display_name(selected_asset)}", # type: ignore
         page="patterns",
         position="inline"
     )
@@ -405,7 +340,7 @@ if len(chart_patterns) > 0:
             y=df_filtered[close_col],
             mode="lines",
             name="Price",
-            line=dict(color=config.COLOR_NORMAL, width=1.5),
+            line={"color": config.COLOR_NORMAL, "width": 1.5},
             hovertemplate="Date: %{x}<br>Price: $%{y:.2f}<extra></extra>"
         )
     )
@@ -426,7 +361,7 @@ if len(chart_patterns) > 0:
     }
     
     # Group patterns by type
-    patterns_by_type = {}
+    patterns_by_type: Dict[str, List[Dict[str, Any]]] = {}
     for p in chart_patterns:
         ptype = p["type"]
         if ptype not in patterns_by_type:
@@ -465,7 +400,7 @@ if len(chart_patterns) > 0:
                 y=y_coords,
                 fill="toself",
                 fillcolor=fill_color,
-                line=dict(color=border_color, width=1),
+                line={"color": border_color, "width": 1},
                 name=ptype,
                 mode="lines",
                 hoverinfo="name",
@@ -482,23 +417,23 @@ if len(chart_patterns) > 0:
                     x1=p["end_date"],
                     y0=p["neckline"],
                     y1=p["neckline"],
-                    line=dict(color=border_color, width=1, dash="dot"),
+                    line={"color": border_color, "width": 1, "dash": "dot"},
                     opacity=0.7
                 )
     
     fig_chart.update_layout(
         height=500,
-        title=f"Chart Patterns - {get_asset_display_name(selected_asset)}",
+        title=f"Chart Patterns - {get_asset_display_name(selected_asset)}", # type: ignore
         xaxis_title="Date",
         yaxis_title="Price",
         hovermode="x unified",
-        legend=dict(
-            orientation="h", 
-            yanchor="bottom", 
-            y=1.02,
-            itemclick="toggle",
-            itemdoubleclick="toggleothers"
-        )
+        legend={
+            "orientation": "h", 
+            "yanchor": "bottom", 
+            "y": 1.02,
+            "itemclick": "toggle",
+            "itemdoubleclick": "toggleothers"
+        }
     )
     
     st.plotly_chart(fig_chart, width='stretch')
@@ -506,7 +441,7 @@ if len(chart_patterns) > 0:
         render_chart_add_button(
             chart_id="patterns_chart",
             figure=fig_chart,
-            label=f"Chart Patterns - {get_asset_display_name(selected_asset)}",
+            label=f"Chart Patterns - {get_asset_display_name(selected_asset)}", # type: ignore
             page="patterns",
             position="inline"
         )
@@ -517,7 +452,6 @@ if len(chart_patterns) > 0:
     chart_pattern_data = []
     for i, p in enumerate(chart_patterns, 1):
         row = {
-            "ID": i,
             "Type": p["type"],
             "Start": str(p["start_date"])[:10],
             "End": str(p["end_date"])[:10],
@@ -530,7 +464,7 @@ if len(chart_patterns) > 0:
         elif p["type"] == "Double Bottom":
             row["Details"] = f"Troughs: ${p['trough1_price']:.2f}, ${p['trough2_price']:.2f}"
         elif p["type"] == "Head & Shoulders":
-            row["Details"] = f"Head: ${p['head']:.2f}, Shoulders: ${p['left_shoulder']:.2f}"
+            row["Details"] = f"Head: ${p['head']:.2f}, Shoulders: ${p['left_shoulder']:.2f}, ${p['right_shoulder']:.2f}"
         elif p["type"] == "Cup & Handle":
             row["Details"] = f"Depth: {p['cup_depth_pct']:.1f}%"
         else:
@@ -546,9 +480,9 @@ else:
     No chart patterns detected with current settings.
     
     **Try adjusting:**
-    - Increase **Price Tolerance** (currently {tolerance}%)
     - Lower **Peak Prominence** (currently {prominence}%)
     - Increase **Chart Pattern Window** (currently {chart_lookback})
+    - Decrease **Minimum Confidence** (currently {minimal_confidence}%)
     """)
 
 
@@ -568,7 +502,7 @@ all_pattern_counts = {
     "Engulfing Bearish": pattern_summary["engulfing_bearish"]
 }
 
-chart_type_counts = {}
+chart_type_counts: Dict[str, int] = {}
 for p in chart_patterns:
     ptype = p["type"]
     chart_type_counts[ptype] = chart_type_counts.get(ptype, 0) + 1
@@ -644,12 +578,11 @@ for pattern_col, pattern_name in pattern_names.items():
     if pattern_col in df_patterns.columns:
         mask = df_patterns[pattern_col]
         for idx in df_patterns[mask].index:
+            name = "Bearish" if "Bearish" in pattern_name else "Neutral"
             timeline_data.append({
                 "date": idx,
                 "pattern": pattern_name,
-                "signal": "Bullish" if "Bullish" in pattern_name or pattern_name == "Hammer" else (
-                    "Bearish" if "Bearish" in pattern_name else "Neutral"
-                )
+                "signal": "Bullish" if "Bullish" in pattern_name or pattern_name == "Hammer" else name
             })
 
 for p in chart_patterns:
@@ -681,7 +614,7 @@ if timeline_data:
                     y=[signal] * len(data),
                     mode="markers",
                     name=signal,
-                    marker=dict(size=12, color=signal_colors[signal]),
+                    marker={"size": 12, "color": signal_colors[signal]},
                     text=data["pattern"],
                     hovertemplate="<b>%{text}</b><br>Date: %{x}<extra></extra>"
                 )
@@ -693,13 +626,13 @@ if timeline_data:
         xaxis_title="Date",
         yaxis_title="Signal Type",
         hovermode="closest",
-        legend=dict(
-            orientation="h", 
-            yanchor="bottom", 
-            y=1.02,
-            itemclick="toggle",
-            itemdoubleclick="toggleothers"
-        )
+        legend={
+            "orientation": "h", 
+            "yanchor": "bottom", 
+            "y": 1.02,
+            "itemclick": "toggle",
+            "itemdoubleclick": "toggleothers"
+        }
     )
     
     st.plotly_chart(fig_timeline, width='stretch')

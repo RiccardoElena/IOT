@@ -7,16 +7,13 @@ This file sets up the page configuration and navigation structure.
 Run with: streamlit run app.py
 """
 
-import os
-import sys
-
 import streamlit as st
 
-# Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-
 import config
-from data_loader import list_available_assets, load_single_asset
+from utils import list_available_assets
+from data import cached_load_single_asset
+from utils.logger import logger
+from pages.components import footer
 
 
 # =============================================================================
@@ -166,16 +163,17 @@ try:
     test_asset = list_available_assets()[0]
     test_granularity = "daily"
     
-    df = load_single_asset(test_asset, test_granularity)
+    df = cached_load_single_asset(test_asset, test_granularity)
     record_count = len(df)
     
-    st.toast(f"Data loaded successfully!", icon="✅")
+    st.toast("Data loaded successfully!", icon="✅")
     
     # Show sample
     with st.expander("Preview data"):
         st.dataframe(df.head(10), width='stretch')
         
 except FileNotFoundError as e:
+    logger.warning(f"Data files not found: {e}")
     st.warning(f"""
     ⚠️ **Data files not found**
     
@@ -196,6 +194,7 @@ except FileNotFoundError as e:
     """)
     
 except Exception as e:
+    logger.error(f"Error loading data: {e}", exc_info=True)
     st.error(f"❌ Error loading data: {e}")
 
 
@@ -203,9 +202,4 @@ except Exception as e:
 # FOOTER
 # =============================================================================
 
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: gray;'>
-    IoT & Data Analytics Project | University Exam
-</div>
-""", unsafe_allow_html=True)
+footer("Home")

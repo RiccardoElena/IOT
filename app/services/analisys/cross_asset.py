@@ -10,52 +10,24 @@ This module implements cross-asset analysis techniques:
 Used to identify relationships between different assets.
 """
 
-import os
-import sys
-from typing import Dict, List, Optional, Tuple
-
-import numpy as np
+from typing import Dict, List, Optional, Tuple, Any
 import pandas as pd
 
-# Add parent directory to path for config import
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import config
-
+from config.anomaly import CORRELATION_WINDOW
+from config.data import COLUMNS
+from config.assets import ASSETS
+from utils.dates import filter_by_date_range
+from .anomaly_detection import detect_anomalies
 
 # =============================================================================
 # CORRELATION CALCULATIONS
 # =============================================================================
 
-def calculate_correlation_matrix(price_matrix: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calculate Pearson correlation matrix for all assets.
-    
-    Args:
-        price_matrix: DataFrame with assets as columns, timestamps as index
-    
-    Returns:
-        Correlation matrix (DataFrame)
-    """
-    return price_matrix.corr(method="pearson")
-
-
-def calculate_returns_matrix(price_matrix: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calculate percentage returns for all assets.
-    
-    Args:
-        price_matrix: DataFrame with assets as columns
-    
-    Returns:
-        DataFrame with percentage returns
-    """
-    return price_matrix.pct_change() * 100
-
 
 def calculate_rolling_correlation(
     series_a: pd.Series,
     series_b: pd.Series,
-    window: int = None
+    window: Optional[int] = None
 ) -> pd.Series:
     """
     Calculate rolling correlation between two series.
@@ -69,44 +41,9 @@ def calculate_rolling_correlation(
         Series with rolling correlation values
     """
     if window is None:
-        window = config.CORRELATION_WINDOW
+        window = CORRELATION_WINDOW
     
     return series_a.rolling(window=window).corr(series_b)
-
-
-def calculate_all_rolling_correlations(
-    price_matrix: pd.DataFrame,
-    window: int = None
-) -> Dict[Tuple[str, str], pd.Series]:
-    """
-    Calculate rolling correlations for all asset pairs.
-    
-    Args:
-        price_matrix: DataFrame with assets as columns
-        window: Rolling window size
-    
-    Returns:
-        Dictionary mapping (asset_a, asset_b) to correlation series
-    """
-    if window is None:
-        window = config.CORRELATION_WINDOW
-    
-    # Use returns for correlation (more stationary)
-    returns = calculate_returns_matrix(price_matrix)
-    
-    correlations = {}
-    assets = list(price_matrix.columns)
-    
-    for i, asset_a in enumerate(assets):
-        for asset_b in assets[i+1:]:
-            corr = calculate_rolling_correlation(
-                returns[asset_a], 
-                returns[asset_b], 
-                window
-            )
-            correlations[(asset_a, asset_b)] = corr
-    
-    return correlations
 
 
 # =============================================================================
@@ -138,7 +75,7 @@ def detect_correlation_anomalies(
     return (rolling_corr > upper_bound) | (rolling_corr < lower_bound)
 
 
-def get_correlation_statistics(rolling_corr: pd.Series) -> Dict[str, float]:
+def get_correlation_statistics(rolling_corr: pd.Series) -> Dict[str, float | None]:
     """
     Get summary statistics for a rolling correlation series.
     
@@ -155,94 +92,6 @@ def get_correlation_statistics(rolling_corr: pd.Series) -> Dict[str, float]:
         "max": float(rolling_corr.max()),
         "current": float(rolling_corr.iloc[-1]) if len(rolling_corr) > 0 else None
     }
-
-
-# =============================================================================
-# SIMULTANEOUS ANOMALIES
-# =============================================================================
-
-def count_simultaneous_anomalies(
-    anomaly_flags: Dict[str, pd.Series]
-) -> pd.Series:
-    """
-    Count how many assets have anomalies at each timestamp.
-    
-    Args:
-        anomaly_flags: Dictionary mapping asset names to boolean anomaly series
-    
-    Returns:
-        Series with count of simultaneous anomalies per timestamp
-    """
-    # Combine all anomaly flags into a DataFrame
-    anomaly_df = pd.DataFrame(anomaly_flags)
-    
-    # Fill NaN with False (no anomaly if no data)
-    anomaly_df = anomaly_df.infer_objects(copy = False)
-    
-    # Sum across columns (count True values)
-    return anomaly_df.sum(axis=1)
-
-
-def detect_systemic_events(
-    anomaly_counts: pd.Series,
-    threshold: int = None
-) -> pd.Series:
-    """
-    Detect systemic events (multiple assets anomalous simultaneously).
-    
-    Args:
-        anomaly_counts: Series with count of anomalies per timestamp
-        threshold: Minimum anomalies for systemic event (default from config)
-    
-    Returns:
-        Boolean Series (True = systemic event)
-    """
-    if threshold is None:
-        threshold = config.SYSTEMIC_EVENT_THRESHOLD
-    
-    return anomaly_counts >= threshold
-
-
-def get_systemic_event_details(
-    anomaly_flags: Dict[str, pd.Series],
-    systemic_mask: pd.Series
-) -> pd.DataFrame:
-    """
-    Get details of systemic events (which assets were affected).
-    
-    Args:
-        anomaly_flags: Dictionary mapping asset names to boolean anomaly series
-        systemic_mask: Boolean series indicating systemic events
-    
-    Returns:
-        DataFrame with systemic event details
-    """
-    events = []
-    
-    anomaly_df = pd.DataFrame(anomaly_flags)
-    
-    # Fill NaN with False to avoid masking errors
-    anomaly_df = anomaly_df.infer_objects(copy=False)
-    
-    # Ensure boolean dtype
-    anomaly_df = anomaly_df.astype(bool)
-    
-    for timestamp in anomaly_df.index[systemic_mask]:
-        row = anomaly_df.loc[timestamp]
-        # Now row is guaranteed to be boolean, safe to use as mask
-        affected_assets = list(row[row].index)
-        events.append({
-            "timestamp": timestamp,
-            "count": len(affected_assets),
-            "assets": ", ".join(affected_assets)
-        })
-    
-    if not events:
-        return pd.DataFrame(columns=["timestamp", "count", "assets"])
-    
-    result = pd.DataFrame(events)
-    result.index = range(1, len(result) + 1)
-    return result
 
 
 # =============================================================================
@@ -320,8 +169,8 @@ def analyze_asset_pair(
     price_matrix: pd.DataFrame,
     asset_a: str,
     asset_b: str,
-    window: int = None
-) -> Dict[str, any]:
+    window: Optional[int] = None
+) -> Dict[str, Any]:
     """
     Comprehensive analysis of a single asset pair.
     
@@ -335,7 +184,7 @@ def analyze_asset_pair(
         Dictionary with analysis results
     """
     if window is None:
-        window = config.CORRELATION_WINDOW
+        window = CORRELATION_WINDOW
     
     # Get price series
     prices_a = price_matrix[asset_a]
@@ -387,7 +236,7 @@ def create_price_matrix_from_dict(
     Returns:
         DataFrame with assets as columns, aligned by timestamp
     """
-    close_col = config.COLUMNS["close"]
+    close_col = COLUMNS["close"]
     
     price_series = {}
     for asset, df in data.items():
@@ -412,7 +261,7 @@ def get_asset_pairs() -> List[Tuple[str, str]]:
     Returns:
         List of (asset_a, asset_b) tuples
     """
-    assets = list(config.ASSETS.keys())
+    assets = list(ASSETS.keys())
     pairs = []
     
     for i, asset_a in enumerate(assets):
@@ -433,6 +282,70 @@ def format_pair_name(asset_a: str, asset_b: str) -> str:
     Returns:
         Formatted pair name
     """
-    name_a = config.ASSETS.get(asset_a, asset_a)
-    name_b = config.ASSETS.get(asset_b, asset_b)
+    name_a = ASSETS.get(asset_a, asset_a)
+    name_b = ASSETS.get(asset_b, asset_b)
     return f"{name_a} / {name_b}"
+
+def get_anomaly_details_by_date(anomaly_flags: dict) -> pd.DataFrame:
+    """
+    Create a DataFrame with anomaly details for each date.
+    Ensures consistent handling of NaN values.
+    
+    Returns DataFrame with columns: date, count, assets_list, assets_str
+    """
+    # Create DataFrame from flags
+    anomaly_df = pd.DataFrame(anomaly_flags)
+    
+    # CRITICAL: Fill NaN with False BEFORE any operations
+    anomaly_df = anomaly_df.fillna(False).astype(bool)
+    
+    results = []
+    for timestamp in anomaly_df.index:
+        row = anomaly_df.loc[timestamp]
+        # Get list of assets with True
+        affected_assets = list(row[row].index)
+        
+        if len(affected_assets) > 0:
+            results.append({
+                "timestamp": timestamp,
+                "count": len(affected_assets),
+                "assets_list": affected_assets,
+                "assets_str": ", ".join([str(ASSETS.get(a, a)) for a in affected_assets])
+            })
+    
+    if not results:
+        return pd.DataFrame(columns=["timestamp", "count", "assets_list", "assets_str"])
+    
+    return pd.DataFrame(results).set_index("timestamp")
+
+def count_simultaneous_anomalies(anomaly_flags: dict) -> pd.Series:
+    """
+    Count simultaneous anomalies with consistent NaN handling.
+    """
+    anomaly_df = pd.DataFrame(anomaly_flags)
+    # CRITICAL: Same fillna as get_anomaly_details_by_date
+    anomaly_df = anomaly_df.fillna(False).astype(bool)
+    return anomaly_df.sum(axis=1)
+
+def process_cross_asset_data(
+    data_dict: Dict[str, pd.DataFrame],
+    start_date: str,
+    end_date: str,
+    zscore_threshold: float
+) -> Tuple[Dict[str, pd.DataFrame], pd.DataFrame, Dict[str, pd.Series]]:
+    """Process all assets for cross-asset analysis."""
+    
+    # Filter each asset by date range
+    filtered_data = {}
+    anomaly_flags = {}
+    
+    for asset, df in data_dict.items():
+        df_filtered = filter_by_date_range(df, start_date, end_date)
+        df_processed = detect_anomalies(df_filtered, zscore_threshold=zscore_threshold)
+        filtered_data[asset] = df_processed
+        anomaly_flags[asset] = df_processed["anomaly_any"]
+    
+    # Create price matrix
+    price_matrix = create_price_matrix_from_dict(filtered_data)
+    
+    return filtered_data, price_matrix, anomaly_flags

@@ -3,3 +3,5 @@ stock_data
 __pycache__/
 **/__pycache__/
 **/.env
+**/.venv/
+**/.mypy_cache/

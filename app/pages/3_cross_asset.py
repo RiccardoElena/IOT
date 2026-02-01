@@ -13,9 +13,6 @@ Gemini AI assistant provides contextual help on correlation interpretation.
 Run with: streamlit run app.py (then navigate to this page)
 """
 
-import os
-import sys
-
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -23,38 +20,39 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Opt-in to future pandas behavior to avoid FutureWarning on fillna
+pd.set_option('future.no_silent_downcasting', True)
 
 import config
+from config.ui import PageType
+from utils.logger import logger
+from data import (
+    cross_asset_data
+)
 
 # Import UI components including Gemini sidebar
-from components import (
+from pages.components import (
     footer, 
     title,
-    render_gemini_sidebar,
+    render_chat,
     render_chart_add_button,
 )
 
 # Import analysis modules
-from src.anomaly_detection import detect_anomalies
-from src.cross_asset import (
+from services import (
     analyze_asset_pair,
-    calculate_correlation_matrix,
-    create_price_matrix_from_dict,
     format_pair_name,
     get_asset_pairs,
     get_typical_correlations,
     normalize_prices,
-)
-from src.data_loader import (
-    filter_by_date_range,
-    get_asset_display_name,
-    load_all_assets,
+    count_simultaneous_anomalies,
+    get_anomaly_details_by_date,
+    process_cross_asset_data,
 )
 
 # Import Gemini context builder for this page
-from src.gemini_assistant import build_cross_asset_context
+from services import context_builder_factory
+from ui import cross_asset_controls, date_selector
 
 
 # =============================================================================
@@ -71,54 +69,6 @@ title("Cross-Asset Analysis",
       """Analyze relationships between multiple assets: correlations,
       simultaneous movements, and systemic events.""")
 
-
-# =============================================================================
-# HELPER FUNCTIONS FOR CONSISTENT ANOMALY HANDLING
-# =============================================================================
-
-def get_anomaly_details_by_date(anomaly_flags: dict) -> pd.DataFrame:
-    """
-    Create a DataFrame with anomaly details for each date.
-    Ensures consistent handling of NaN values.
-    
-    Returns DataFrame with columns: date, count, assets_list, assets_str
-    """
-    # Create DataFrame from flags
-    anomaly_df = pd.DataFrame(anomaly_flags)
-    
-    # CRITICAL: Fill NaN with False BEFORE any operations
-    anomaly_df = anomaly_df.fillna(False).astype(bool)
-    
-    results = []
-    for timestamp in anomaly_df.index:
-        row = anomaly_df.loc[timestamp]
-        # Get list of assets with True
-        affected_assets = list(row[row].index)
-        
-        if len(affected_assets) > 0:
-            results.append({
-                "timestamp": timestamp,
-                "count": len(affected_assets),
-                "assets_list": affected_assets,
-                "assets_str": ", ".join([config.ASSETS.get(a, a) for a in affected_assets])
-            })
-    
-    if not results:
-        return pd.DataFrame(columns=["timestamp", "count", "assets_list", "assets_str"])
-    
-    return pd.DataFrame(results).set_index("timestamp")
-
-
-def count_simultaneous_anomalies_consistent(anomaly_flags: dict) -> pd.Series:
-    """
-    Count simultaneous anomalies with consistent NaN handling.
-    """
-    anomaly_df = pd.DataFrame(anomaly_flags)
-    # CRITICAL: Same fillna as get_anomaly_details_by_date
-    anomaly_df = anomaly_df.fillna(False).astype(bool)
-    return anomaly_df.sum(axis=1)
-
-
 # =============================================================================
 # SIDEBAR - CONTROLS AND INFO
 # =============================================================================
@@ -127,23 +77,7 @@ with st.sidebar:
     st.header("Controls")
     
     # Correlation window
-    correlation_window = st.slider(
-        "Correlation Window (days)",
-        min_value=10,
-        max_value=60,
-        value=config.CORRELATION_WINDOW,
-        step=5,
-        help="Number of days used to calculate rolling correlation. Smaller = more reactive, larger = more stable."
-    )
-    
-    # Systemic event threshold
-    systemic_threshold = st.slider(
-        "Systemic Event Threshold",
-        min_value=2,
-        max_value=5,
-        value=config.SYSTEMIC_EVENT_THRESHOLD,
-        help="Minimum number of assets that must show anomalies simultaneously to flag as a systemic event."
-    )
+    correlation_window, systemic_threshold = cross_asset_controls()
     
     st.markdown("---")
     
@@ -151,48 +85,9 @@ with st.sidebar:
 # DATA LOADING
 # =============================================================================
 
-@st.cache_data
-def load_all_daily_data():
-    """Load daily data for all assets."""
-    return load_all_assets("daily")
 
-
-@st.cache_data
-def process_cross_asset_data(data_dict, start_date, end_date, zscore_threshold):
-    """Process all assets for cross-asset analysis."""
-    
-    # Filter each asset by date range
-    filtered_data = {}
-    anomaly_flags = {}
-    
-    for asset, df in data_dict.items():
-        df_filtered = filter_by_date_range(df, start_date, end_date)
-        df_processed = detect_anomalies(df_filtered, zscore_threshold=zscore_threshold)
-        filtered_data[asset] = df_processed
-        anomaly_flags[asset] = df_processed["anomaly_any"]
-    
-    # Create price matrix
-    price_matrix = create_price_matrix_from_dict(filtered_data)
-    
-    return filtered_data, price_matrix, anomaly_flags
-
-
-# Load data
-try:
-    with st.spinner("Loading data for all assets..."):
-        all_data = load_all_daily_data()
-    
-    if len(all_data) == 0:
-        st.error("No data loaded. Please check that CSV files exist.")
-        st.stop()
-    
-    if len(all_data) < 2:
-        st.error("Need at least 2 assets for cross-asset analysis.")
-        st.stop()
-
-except Exception as e:
-    st.error(f"Error loading data: {e}")
-    st.stop()
+with st.spinner("Loading cross-asset data..."):
+  all_data = cross_asset_data()
 
 
 # =============================================================================
@@ -200,32 +95,12 @@ except Exception as e:
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### 📅 Date Range")
 
 # Get common date range across all assets
 first_asset = list(all_data.values())[0]
 min_date = first_asset.index.min().date()
 max_date = first_asset.index.max().date()
-
-col1, col2 = st.columns(2)
-
-with col1:
-    start_date = st.date_input(
-        "Start Date",
-        value=min_date,
-        min_value=min_date,
-        max_value=max_date,
-        help="Beginning of the analysis period. All calculations use data from this date onwards."
-    )
-
-with col2:
-    end_date = st.date_input(
-        "End Date",
-        value=max_date,
-        min_value=min_date,
-        max_value=max_date,
-        help="End of the analysis period. All calculations use data up to this date."
-    )
+start_date, end_date = date_selector("day", min_date, max_date)
 
 
 # =============================================================================
@@ -242,6 +117,7 @@ try:
         )
 
 except Exception as e:
+    logger.error(f"Error processing data: {e}", exc_info=True)
     st.error(f"Error processing data: {e}")
     st.stop()
 
@@ -261,7 +137,8 @@ for i, asset_a in enumerate(assets_list):
     for j, asset_b in enumerate(assets_list):
         if i < j:  # Only upper triangle (avoid duplicates)
             pair_key = f"{config.ASSETS.get(asset_a, asset_a)} vs {config.ASSETS.get(asset_b, asset_b)}"
-            correlation_dict[pair_key] = round(corr_matrix_pre.loc[asset_a, asset_b], 3)
+            corr_value = corr_matrix_pre.loc[asset_a, asset_b]
+            correlation_dict[pair_key] = round(float(corr_value.item() if hasattr(corr_value, 'item') else corr_value), 3)  # type: ignore
 
 # Calculate systemic events summary
 anomaly_df = pd.DataFrame(anomaly_flags).fillna(False).astype(bool)
@@ -279,7 +156,7 @@ systemic_events = {
 }
 
 # Build Gemini context with cross-asset data
-gemini_context = build_cross_asset_context(
+gemini_context = context_builder_factory(PageType.CROSS_ASSET)(
     start_date=str(start_date),
     end_date=str(end_date),
     correlation_matrix=correlation_dict,
@@ -290,9 +167,9 @@ gemini_context = build_cross_asset_context(
 
 # Render Gemini sidebar with cross-asset context
 with st.sidebar:
-    render_gemini_sidebar(
+    render_chat(
         page_context=gemini_context,
-        page_type="cross_asset"
+        page_type=PageType.CROSS_ASSET
     )
 
 
@@ -407,7 +284,7 @@ fig_normalized.update_layout(
     xaxis_title="Date",
     yaxis_title="Normalized Value (100 = start)",
     hovermode="x unified",
-    legend=dict(orientation="h", yanchor="bottom", y=1.02)
+    legend={"orientation":"h", "yanchor":"bottom", "y":1.02}
 )
 
 
@@ -437,7 +314,7 @@ with t_col1:
 
 # Use consistent functions for both chart and table
 anomaly_details = get_anomaly_details_by_date(anomaly_flags)
-anomaly_counts = count_simultaneous_anomalies_consistent(anomaly_flags)
+anomaly_counts = count_simultaneous_anomalies(anomaly_flags)
 
 # Create systemic mask
 systemic_mask = anomaly_counts >= systemic_threshold
@@ -513,10 +390,10 @@ fig_simultaneous.add_hline(
 
 fig_simultaneous.update_layout(
     height=350,
-    title=dict(
-        text=f"Simultaneous Anomalies per Day<br><sup>Blue = 1 asset | Orange = 2 assets | Red = {systemic_threshold}+ assets (systemic)</sup>",
-        font=dict(size=14)
-    ),
+    title={
+        "text": f"Simultaneous Anomalies per Day<br><sup>Blue = 1 asset | Orange = 2 assets | Red = {systemic_threshold}+ assets (systemic)</sup>",
+        "font":{"size": 14}
+    },
     xaxis_title="Date",
     yaxis_title="Number of Assets with Anomalies",
     hovermode="x unified"
@@ -554,7 +431,7 @@ if total_systemic > 0:
     
     if systemic_table_data:
         systemic_df = pd.DataFrame(systemic_table_data)
-        systemic_df.index = range(1, len(systemic_df) + 1)
+        systemic_df.index = range(1, len(systemic_df) + 1) # type: ignore
         st.dataframe(systemic_df, width='stretch')
     else:
         st.info(f"No systemic events detected (threshold: {systemic_threshold}+ assets)")
@@ -650,7 +527,7 @@ fig_rolling.add_trace(
         y=rolling_corr.values,
         mode="lines",
         name="Rolling Correlation",
-        line=dict(color=config.COLOR_NORMAL),
+        line={"color": config.COLOR_NORMAL},
         hovertemplate="Date: %{x}<br>Correlation: %{y:.3f}<extra></extra>"
     )
 )
@@ -687,10 +564,10 @@ if anomaly_mask.any():
             y=anomaly_corr.values,
             mode="markers",
             name="Correlation Anomaly",
-            marker=dict(
-                size=10,
-                color=config.COLOR_ANOMALY
-            ),
+            marker={
+                "size": 10,
+                "color": config.COLOR_ANOMALY
+            },
             hovertemplate=(
                 "<b> CORRELATION ANOMALY</b><br>"
                 "Date: %{x}<br>"
@@ -705,7 +582,7 @@ fig_rolling.update_layout(
     title=f"Rolling {correlation_window}-Day Correlation: {selected_pair_name}",
     xaxis_title="Date",
     yaxis_title="Correlation",
-    yaxis=dict(range=[-1.1, 1.1]),
+    yaxis={"range": [-1.1, 1.1]},
     hovermode="x unified"
 )
 
@@ -742,11 +619,11 @@ fig_scatter.add_trace(
         x=returns_a,
         y=returns_b,
         mode="markers",
-        marker=dict(
-            size=5,
-            color=config.COLOR_NORMAL,
-            opacity=0.6
-        ),
+        marker={
+            "size": 5,
+            "color": config.COLOR_NORMAL,
+            "opacity": 0.6
+        },
         hovertemplate=(
             f"{config.ASSETS.get(asset_a, asset_a)}: " + "%{x:.2f}%<br>"
             f"{config.ASSETS.get(asset_b, asset_b)}: " + "%{y:.2f}%<br>"

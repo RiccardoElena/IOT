@@ -15,7 +15,7 @@ load_dotenv()
 # Base directory for all data files (relative to this file's location)
 _CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_DATA_BASE_PATH = os.path.join(_CONFIG_DIR, "..", "data")
-DATA_BASE_PATH = os.getenv("DATA_BASE_PATH", DEFAULT_DATA_BASE_PATH)
+DATA_BASE_PATH = os.getenv("DATA_PATH_CONTAINER", DEFAULT_DATA_BASE_PATH)
 DATA_BASE_PATH = os.path.abspath(DATA_BASE_PATH)  # Convert to absolute path
 
 # Subdirectories for each granularity

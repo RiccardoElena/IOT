@@ -1,7 +1,7 @@
 import streamlit as st
 import time
 from typing import Any, List
-from .state import init_gemini_session_state, get_selected_data_options, GEMINI_MODULE_AVAILABLE
+from .state import init_gemini_session_state, GEMINI_MODULE_AVAILABLE
 from config import MAX_CHARTS_IN_CONTEXT, DATA_OPTIONS
 from config.ui import PageType
 
@@ -188,14 +188,11 @@ def render_data_selection(page_type: PageType) -> List[str]:
         return []
     
     options = DATA_OPTIONS[page_type]
-    selected = get_selected_data_options(page_type)
     
     with st.expander("📎 Dati da allegare", expanded=False):
         for key, opt in options.items():
-            default_value = bool(opt["default"]) if opt["default"] is not None else False
             new_value = st.checkbox(
                 str(opt["label"]),
-                value=selected.get(key, default_value),
                 key=f"data_opt_{page_type}_{key}",
                 help=str(opt["description"])
             )

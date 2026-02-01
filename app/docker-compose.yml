@@ -4,7 +4,7 @@ services:
     env_file:
       - .env
     volumes:
-      - ${DATA_PATH_LOCAL}:/app/${DATA_PATH_CONTAINER}:ro
+      - ${DATA_PATH_LOCAL}:/app/${CONTAINER_DATA_DIR}:ro
     ports:
-      - "8501:8501"
+      - '8501:8501'
     restart: unless-stopped

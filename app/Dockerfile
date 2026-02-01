@@ -6,14 +6,27 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 # Install minimal system build deps (needed by some Python packages)
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential gcc libffi-dev \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  chromium \
+  fonts-liberation \
+  libxss1 \
+  libappindicator3-1 \
+  libatk-bridge2.0-0 \
+  libgtk-3-0 \
+  libnss3 \
+  libasound2 \
+  libgbm1 \
+  xdg-utils \
+  ca-certificates \
+  && ln -s /usr/bin/chromium /usr/bin/google-chrome || true \
+  && rm -rf /var/lib/apt/lists/*
+
+ENV CHROME_BIN=/usr/bin/chromium
 
 # Copy and install Python dependencies first to leverage docker layer caching
 COPY requirements.txt /app/requirements.txt
 RUN pip install --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir -r /app/requirements.txt
+  && pip install --no-cache-dir -r /app/requirements.txt
 
 # Copy app source
 COPY . /app

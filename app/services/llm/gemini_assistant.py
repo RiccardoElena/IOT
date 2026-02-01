@@ -156,8 +156,6 @@ class GeminiAssistant:
                 max_output_tokens=self.max_tokens,
                 system_instruction=self.system_prompt
             )
-
-            logger.info(f"{content}")
             
             response = self.client.models.generate_content(
                 model=self.model_name_for_api,

@@ -396,7 +396,7 @@ if len(anomaly_df) > 0:
         """Callback when anomaly is selected."""
         selected = st.session_state.anomaly_selector
         
-        if selected != "Select an anomaly...":
+        if selected != "Select an anomaly..." and selected is not None:
             anomaly_idx = int(selected.split(":")[0].replace("#", ""))
             anomaly_row = anomaly_df.loc[anomaly_idx]
             anomaly_timestamp = anomaly_row["timestamp"]

@@ -48,7 +48,7 @@ def format_date(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%d")
 
 def wait_for_rate_limit():
-    print(f"  ⏳ Waiting {RATE_LIMIT_DELAY}s for rate limit...")
+    print(f"  Waiting {RATE_LIMIT_DELAY}s for rate limit...")
     time.sleep(RATE_LIMIT_DELAY)
 
 def generate_date_chunks(start: datetime, end: datetime, chunk_days: int) -> List[tuple]:
@@ -68,7 +68,7 @@ def download_chunk(client: RESTClient, ticker: str, multiplier: int, timespan: s
     while attempt < MAX_RETRIES:
         try:
             api_call_counter += 1
-            print(f"    📡 Chunk {chunk_num}/{total_chunks} - API Call #{api_call_counter} (attempt {attempt + 1}/{MAX_RETRIES})")
+            print(f"    Chunk {chunk_num}/{total_chunks} - API Call #{api_call_counter} (attempt {attempt + 1}/{MAX_RETRIES})")
             print(f"       Period: {start} to {end}")
             
             data = []
@@ -89,12 +89,12 @@ def download_chunk(client: RESTClient, ticker: str, multiplier: int, timespan: s
             
         except Exception as e:
             attempt += 1
-            print(f"    ❌ Error: {str(e)}")
+            print(f"    Error: {str(e)}")
             if attempt < MAX_RETRIES:
-                print(f"    ⏳ Retrying in {RETRY_DELAY}s...")
+                print(f"    Retrying in {RETRY_DELAY}s...")
                 time.sleep(RETRY_DELAY)
             else:
-                print(f"    ❌ Failed after {MAX_RETRIES} attempts")
+                print(f"    Failed after {MAX_RETRIES} attempts")
                 return []
     
     return []
@@ -105,7 +105,7 @@ def download_with_chunks(client: RESTClient, ticker: str, timeframe: Dict,
     total_chunks = len(chunks)
     all_data = []
     
-    print(f"  📦 Split into {total_chunks} chunks ({timeframe['chunk_days']} days each)")
+    print(f"  Split into {total_chunks} chunks ({timeframe['chunk_days']} days each)")
     
     for idx, (chunk_start, chunk_end) in enumerate(chunks, 1):
         start_str = format_date(chunk_start)
@@ -132,7 +132,7 @@ def download_with_chunks(client: RESTClient, ticker: str, timeframe: Dict,
 def save_to_csv(data: List[Dict], filename: str):
     filepath = CSV_DIR / filename
     if not data:
-        print(f"⚠️  No data to save to {filename}")
+        print(f"  No data to save to {filename}")
         return
     
     headers = ["timestamp", "open", "high", "low", "close", "volume", "vw", "n"]
@@ -184,11 +184,11 @@ def main():
     print(f"Period: {format_date(START_DATE)} to {format_date(END_DATE)}")
     print(f"Timeframes: {', '.join([tf['name'] for tf in TIMEFRAMES])}")
     print(f"Rate Limit: {RATE_LIMIT_DELAY}s between calls")
-    print(f"⚠️  This will take a while!\n")
+    print(f"  This will take a while!\n")
     
     setup_directories()
     
-    print("🔑 Initializing Massive API client...")
+    print("Initializing Massive API client...")
     client = RESTClient(API_KEY)
     print("✓ Client ready\n")
     
@@ -233,7 +233,7 @@ def main():
                 save_to_json(data, f"{base_filename}.json", metadata)
                 print(f"✓ Completed {ticker_name} {timeframe['name']}: {len(data)} total bars\n")
             else:
-                print(f"⚠️  No data retrieved for {ticker_name} {timeframe['name']}\n")
+                print(f"  No data retrieved for {ticker_name} {timeframe['name']}\n")
             
             if current_combo < total_combinations:
                 wait_for_rate_limit()
@@ -242,21 +242,21 @@ def main():
     elapsed_minutes = elapsed_time / 60
     
     print("=" * 70)
-    print("✅ DOWNLOAD COMPLETE!")
+    print(" DOWNLOAD COMPLETE!")
     print("=" * 70)
     print(f"Total assets downloaded: {len(TICKERS)}")
     print(f"Total API calls made: {api_call_counter}")
     print(f"Total time elapsed: {elapsed_minutes:.1f} minutes ({elapsed_minutes/60:.1f} hours)")
     print(f"\nData saved in:")
-    print(f"  📊 CSV files: {CSV_DIR}")
-    print(f"  📄 JSON files: {JSON_DIR}")
-    print("\n🎯 Ready for anomaly detection and pattern recognition!")
+    print(f"  CSV files: {CSV_DIR}")
+    print(f"  JSON files: {JSON_DIR}")
+    print("\nReady for anomaly detection and pattern recognition!")
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print(f"\n\n⚠️  Interrupted after {api_call_counter} API calls")
+        print(f"\n\n  Interrupted after {api_call_counter} API calls")
     except Exception as e:
-        print(f"\n\n❌ Fatal error after {api_call_counter} API calls: {str(e)}")
+        print(f"\n\n Fatal error after {api_call_counter} API calls: {str(e)}")
         raise

@@ -262,7 +262,7 @@ def detect_head_and_shoulders(
 
 def detect_cup_and_handle(
     df: pd.DataFrame, 
-    tolerance: float,
+    min_confidence: float,
     lookback: int = 60,
     cup_depth_min: float = 0.05,
     cup_depth_max: float = 0.50
@@ -295,8 +295,7 @@ def detect_cup_and_handle(
             cup_depth_min=cup_depth_min,
             cup_depth_max=cup_depth_max
         )
-
-        if 1-confidence < tolerance:
+        if confidence < min_confidence:
             continue
           
         patterns.append({

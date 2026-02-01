@@ -156,6 +156,8 @@ def detect_anomalies(
     
     # Calculate percentage change BEFORE any filtering
     result["pct_change"] = result[close_col].pct_change()*100
+    result["pct_change_volume"] = result[volume_col].pct_change()*100
+    result["pct_change_volatility"] = result["volatility"].pct_change()*100
     
     # Calculate Z-scores based on mode
     if mode == "rolling":
@@ -198,37 +200,38 @@ def get_anomaly_table(df: pd.DataFrame) -> pd.DataFrame:
     volume_col = COLUMNS["volume"]
     
     for idx, row in df.iterrows():
-        pct_val = row.get("pct_change", None)
-        pct_change_value = pct_val if pd.notna(pct_val) else None
         
         # Check price anomaly - include pct_change
         if row.get("anomaly_price", False):
+            pct_val = row.get("pct_change", None)
             anomalies.append({
                 "timestamp": idx,
                 "type": "Price",
                 "value": row[close_col],
                 "zscore": row["zscore_close"],
-                "pct_change": pct_change_value
+                "pct_change": pct_val if pd.notna(pct_val) else None
             })
         
         # Check volume anomaly
         if row.get("anomaly_volume", False):
+            pct_val = row.get("pct_change_volume", None)
             anomalies.append({
                 "timestamp": idx,
                 "type": "Volume",
                 "value": row[volume_col],
                 "zscore": row["zscore_volume"],
-                "pct_change": pct_change_value
+                "pct_change": pct_val if pd.notna(pct_val) else None
             })
         
         # Check volatility anomaly
         if row.get("anomaly_volatility", False):
+            pct_val = row.get("pct_change_volatility", None)
             anomalies.append({
                 "timestamp": idx,
                 "type": "Volatility",
                 "value": row.get("volatility", None),
                 "zscore": row["zscore_volatility"],
-                "pct_change": pct_change_value
+                "pct_change": pct_val if pd.notna(pct_val) else None
             })
     
     if not anomalies:

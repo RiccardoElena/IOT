@@ -100,7 +100,7 @@ st.markdown("---")
 first_asset = list(all_data.values())[0]
 min_date = first_asset.index.min().date()
 max_date = first_asset.index.max().date()
-start_date, end_date = date_selector("minute", min_date, max_date)
+start_date, end_date = date_selector("day", min_date, max_date)
 
 
 # =============================================================================

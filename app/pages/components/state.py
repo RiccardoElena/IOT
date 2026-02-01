@@ -60,14 +60,11 @@ def get_selected_data_options(page_type: PageType) -> Dict[str, bool]:
     if page_type not in st.session_state.gemini_selected_data:
         # Initialize with defaults
         if page_type in DATA_OPTIONS:
-            st.session_state.gemini_selected_data[page_type] = {
-                key: opt["default"] 
-                for key, opt in DATA_OPTIONS[page_type].items()
-            }
+            st.session_state.gemini_selected_data[page_type] =dict.fromkeys(
+                DATA_OPTIONS[page_type].keys(), False
+            )
         else:
             st.session_state.gemini_selected_data[page_type] = {}
     
     return st.session_state.gemini_selected_data[page_type]
-
-
 

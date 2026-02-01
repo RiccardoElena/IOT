@@ -18,7 +18,7 @@ def detect_doji(df: pd.DataFrame, threshold: float = DOJI_BODY_RATIO_DEFAULT) ->
     """
     results = []
     
-    for idx, row in df.iterrows():
+    for _, row in df.iterrows():
         body = get_candle_body(row)
         range_val = get_candle_range(row)
         
@@ -49,7 +49,7 @@ def detect_hammer(df: pd.DataFrame, body_ratio: float = HAMMER_BODY_RATIO_DEFAUL
     """
     results = []
     
-    for idx, row in df.iterrows():
+    for _, row in df.iterrows():
         body = get_candle_body(row)
         range_val = get_candle_range(row)
         lower_shadow = get_lower_shadow(row)
